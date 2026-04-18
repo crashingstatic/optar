@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Convenience wrapper: runs the optar-encode JAR that sits next to this script.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+exec java -jar "$here/optar-encode.jar" "$@"
