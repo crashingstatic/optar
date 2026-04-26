@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Optar Browser Edition</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --panel: #ffffff;
+    --ink: #1d1d1d;
+    --muted: #666;
+    --accent: #1a4ea8;
+    --border: #d0d0d0;
+    --ok: #1c7a3e;
+    --warn: #b56600;
+    --bad: #b32424;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    padding: 16px;
+  }
+  h1 { font-size: 1.4em; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 16px; }
+  .tabs { border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tabs button {
+    background: transparent;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    padding: 10px 18px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .tabs button.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+  }
+  .panel.hidden { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+  .field label { font-size: 0.85em; color: var(--muted); }
+  input[type="text"], input[type="number"], select {
+    font: inherit;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: white;
+  }
+  button.primary {
+    background: var(--accent);
+    color: white;
+    border: 0;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  button.secondary {
+    background: white;
+    color: var(--ink);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .stat {
+    display: inline-block;
+    padding: 2px 8px;
+    margin: 2px 4px 2px 0;
+    background: #eef;
+    border-radius: 12px;
+    font-size: 0.85em;
+  }
+  .ok  { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--bad); }
+  pre {
+    background: #2b2b2b;
+    color: #f1f1f1;
+    padding: 8px;
+    border-radius: 4px;
+    overflow: auto;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .pages { display: flex; flex-direction: column; gap: 24px; margin-top: 16px; }
+  .page-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    background: #fafafa;
+  }
+  .page-card canvas {
+    max-width: 100%;
+    border: 1px solid #999;
+    image-rendering: pixelated;
+    background: white;
+  }
+  .page-card .meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .help-content { line-height: 1.6; }
+  .help-content table { border-collapse: collapse; margin: 12px 0; }
+  .help-content th, .help-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+
+  /* Print: only the print-target page is shown, sized to physical dimensions. */
+  @media print {
+    body, .panel, .tabs, h1, .sub { background: white; padding: 0; margin: 0; border: 0; }
+    body > *:not(#print-host) { display: none !important; }
+    #print-host { display: block !important; }
+    #print-host canvas { display: block; }
+    @page { margin: 0; }
+  }
+  #print-host { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Optar &mdash; Browser Edition</h1>
+<div class="sub">Encode any file as a 2D paper barcode. Print, scan later, decode.</div>
+
+<div class="tabs">
+  <button data-tab="encode" class="active">Encode</button>
+  <button data-tab="decode">Decode</button>
+  <button data-tab="settings">Settings</button>
+  <button data-tab="help">Help</button>
+</div>
+
+<section id="tab-encode" class="panel">
+  <div class="row">
+    <div class="field">
+      <label for="enc-file">Source file</label>
+      <input type="file" id="enc-file">
+    </div>
+    <div class="field">
+      <label for="enc-label">Label (printed at bottom)</label>
+      <input type="text" id="enc-label" value="optar_out" maxlength="40">
+    </div>
+    <button class="primary" id="enc-go" disabled>Encode</button>
+  </div>
+  <div id="enc-info" class="sub">Choose a file to encode.</div>
+  <div id="enc-pages" class="pages"></div>
+</section>
+
+<section id="tab-decode" class="panel hidden">
+  <div class="row">
+    <div class="field">
+      <label for="dec-files">Scanned page images (PNG)</label>
+      <input type="file" id="dec-files" multiple accept="image/png,image/bmp,image/jpeg">
+    </div>
+    <div class="field">
+      <label for="dec-format">Format string</label>
+      <input type="text" id="dec-format" value="0-65-93-24-3-1-2-24" size="22">
+    </div>
+    <button class="primary" id="dec-go" disabled>Decode</button>
+  </div>
+  <div id="dec-status" class="sub">Choose one or more page images.</div>
+  <div id="dec-stats"></div>
+  <div id="dec-output"></div>
+</section>
+
+<section id="tab-settings" class="panel hidden">
+  <div class="row">
+    <div class="field">
+      <label for="set-xcrosses">XCROSSES</label>
+      <input type="number" id="set-xcrosses" value="65" min="3" max="200">
+    </div>
+    <div class="field">
+      <label for="set-ycrosses">YCROSSES</label>
+      <input type="number" id="set-ycrosses" value="93" min="3" max="200">
+    </div>
+    <div class="field">
+      <label for="set-scale">Pixels per cell</label>
+      <input type="number" id="set-scale" value="3" min="1" max="8">
+    </div>
+    <div class="field">
+      <label for="set-paper">Paper size</label>
+      <select id="set-paper">
+        <option value="A4">A4 (65 x 93)</option>
+        <option value="Letter">US Letter (67 x 87)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Output dimensions</label>
+      <div id="set-dims" class="sub"></div>
+    </div>
+  </div>
+  <div class="sub">
+    Defaults match the original Optar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
+    Decoder uses the format string to read XCROSSES/YCROSSES; other parameters are fixed.
+  </div>
+</section>
+
+<section id="tab-help" class="panel hidden help-content">
+  <h2>Optar Browser Edition &mdash; How-To Guide</h2>
+  <h3>What is Optar?</h3>
+  <p>
+    Optar (OPTical ARchiver) encodes any file as a pattern of dots on paper.
+    Print the pattern with a laser printer. To recover the file later, scan
+    the paper and decode. Each A4/Letter page holds approximately 200 KB.
+    Error correction (Golay code) makes it resilient to paper folding,
+    dust, and minor damage.
+  </p>
+
+  <h3>Encoding (File &rarr; Paper)</h3>
+  <ol>
+    <li>Open <code>optar.html</code> in your browser. No internet connection required.</li>
+    <li>Select the <strong>Encode</strong> tab.</li>
+    <li>Click <strong>Choose File</strong> and select any file you want to archive.</li>
+    <li>Optionally adjust <strong>Settings</strong> (paper size, grid density). Defaults work for most 600 DPI laser printers.</li>
+    <li>Click <strong>Encode</strong>. The application generates one or more page images.</li>
+    <li>For each page, click <strong>Print</strong> or <strong>Download PNG</strong>. Use a laser printer at 600 DPI or higher; inkjet bleeds reduce reliability.</li>
+    <li>Note the format string (e.g. <code>0-65-93-24-3-1-2-24</code>) printed at the bottom of every page. You will need it for decoding.</li>
+  </ol>
+  <p><strong>Important:</strong> Files are zero-padded to fill the last page. If your file format is sensitive to trailing zeros, wrap it in a tar or zip archive first.</p>
+
+  <h3>Decoding (Paper &rarr; File)</h3>
+  <ol>
+    <li>Scan your pages at 600 DPI grayscale. Format: <strong>PNG</strong>, color mode <strong>grayscale</strong>, gamma <strong>off</strong>.</li>
+    <li>Name files so they sort in page order, e.g. <code>scan_0001.png</code>, <code>scan_0002.png</code>.</li>
+    <li>Open the <strong>Decode</strong> tab.</li>
+    <li>Click <strong>Choose Files</strong> and select all your scan images.</li>
+    <li>Type the format string from the bottom of any page (e.g. <code>0-65-93-24-3-1-2-24</code>).</li>
+    <li>Click <strong>Decode</strong>. Per-page Golay error statistics are displayed:
+      <ul>
+        <li><strong>0 errors:</strong> perfect readout (most codewords should land here)</li>
+        <li><strong>1&ndash;3 errors:</strong> corrected automatically</li>
+        <li><strong>Uncorrectable:</strong> data damage detected; those 12-bit symbols are unreliable</li>
+      </ul>
+    </li>
+    <li>Click <strong>Download decoded file</strong>.</li>
+  </ol>
+
+  <h3>Troubleshooting</h3>
+  <table>
+    <tr><th>Problem</th><th>Solution</th></tr>
+    <tr><td>High uncorrectable error count</td><td>Re-scan at higher DPI; clean scanner glass; press paper flatter.</td></tr>
+    <tr><td>Decoder can't find corners</td><td>Ensure the entire page including borders is within the scan area.</td></tr>
+    <tr><td>Pages out of order</td><td>Rename files to sort correctly; check page sequence numbers.</td></tr>
+    <tr><td>File has trailing garbage</td><td>The original file was zero-padded; strip trailing zeros or unwrap from tar/zip.</td></tr>
+    <tr><td>Blank output</td><td>Check that you entered the correct format string.</td></tr>
+  </table>
+</section>
+
+<div id="print-host"></div>
+
+<script>
+'use strict';
+
+// ============================================================================
+// Constants matching Twibright Optar geometry (logical units = data cells).
+// ============================================================================
+const BORDER         = 2;
+const CHALF          = 3;
+const CPITCH         = 24;
+const TEXT_HEIGHT    = 24;
+const FEC_LARGEBITS  = 24;
+const FEC_SMALLBITS  = 12;
+const FEC_ORDER      = 1;
+
+// Default scaling (pixels per logical cell) for the rendered canvas.
+const DEFAULT_SCALE  = 3;
+
+// ============================================================================
+// Geometry: derive page-level constants from XCROSSES/YCROSSES.
+// ============================================================================
+function makeGeometry(xcrosses, ycrosses) {
+  const DATA_WIDTH    = CPITCH * (xcrosses - 1) + 2 * CHALF;
+  const DATA_HEIGHT   = CPITCH * (ycrosses - 1) + 2 * CHALF;
+  const WIDTH         = 2 * BORDER + DATA_WIDTH;
+  const HEIGHT        = 2 * BORDER + DATA_HEIGHT + TEXT_HEIGHT;
+  const NARROWHEIGHT  = 2 * CHALF;
+  const GAPWIDTH      = CPITCH - 2 * CHALF;
+  const NARROWWIDTH   = GAPWIDTH * (xcrosses - 1);
+  const NARROWPIXELS  = NARROWHEIGHT * NARROWWIDTH;
+  const WIDEHEIGHT    = GAPWIDTH;
+  const WIDEWIDTH     = WIDTH - 2 * BORDER;
+  const WIDEPIXELS    = WIDEHEIGHT * WIDEWIDTH;
+  const REPHEIGHT     = NARROWHEIGHT + WIDEHEIGHT;
+  const REPPIXELS     = WIDEPIXELS + NARROWPIXELS;
+  const TOTALBITS     = REPPIXELS * (ycrosses - 1) + NARROWPIXELS;
+  const FEC_SYMS      = Math.floor(TOTALBITS / FEC_LARGEBITS);
+  const NETBITS       = FEC_SYMS * FEC_SMALLBITS;
+  return {
+    xcrosses, ycrosses,
+    DATA_WIDTH, DATA_HEIGHT, WIDTH, HEIGHT,
+    NARROWHEIGHT, GAPWIDTH, NARROWWIDTH, NARROWPIXELS,
+    WIDEHEIGHT, WIDEWIDTH, WIDEPIXELS,
+    REPHEIGHT, REPPIXELS, TOTALBITS,
+    FEC_SYMS, NETBITS
+  };
+}
+
+// Maps a sequential payload-bit number to (x,y) inside the data area
+// (relative to the upper-left of the upper-left cross; caller adds BORDER).
+// Matches common.c::seq2xy.
+function seq2xy(geom, seq) {
+  if (seq >= geom.TOTALBITS) return [-1, -1];
+  const rep = Math.floor(seq / geom.REPPIXELS);
+  let s = seq - rep * geom.REPPIXELS;
+  let y = geom.REPHEIGHT * rep;
+  let x;
+  if (s >= geom.NARROWPIXELS) {
+    y += geom.NARROWHEIGHT;
+    s -= geom.NARROWPIXELS;
+    y += Math.floor(s / geom.WIDEWIDTH);
+    x  = s - Math.floor(s / geom.WIDEWIDTH) * geom.WIDEWIDTH;
+  } else {
+    x = 2 * CHALF;
+    y += Math.floor(s / geom.NARROWWIDTH);
+    s = s - Math.floor(s / geom.NARROWWIDTH) * geom.NARROWWIDTH;
+    const gap = Math.floor(s / geom.GAPWIDTH);
+    x += gap * CPITCH;
+    s = s - gap * geom.GAPWIDTH;
+    x += s;
+  }
+  return [x, y];
+}
+
+// ============================================================================
+// Golay(24,12) codec.
+//   Encoder: lookup in CODES.
+//   Decoder: 12-bit syndrome lookup → 24-bit error pattern (≤3 weight) → XOR.
+// ============================================================================
+const POPCOUNT_TABLE = new Uint8Array(256);
+for (let i = 0; i < 256; i++) {
+  POPCOUNT_TABLE[i] = (i & 1) + POPCOUNT_TABLE[i >>> 1];
+}
+function popcount24(v) {
+  return POPCOUNT_TABLE[v & 0xff]
+       + POPCOUNT_TABLE[(v >>> 8) & 0xff]
+       + POPCOUNT_TABLE[(v >>> 16) & 0xff];
+}
+function parity32(v) {
+  v ^= v >>> 16; v ^= v >>> 8; v ^= v >>> 4; v ^= v >>> 2; v ^= v >>> 1;
+  return v & 1;
+}
+
+const GOLAY_PARITIES = (() => {
+  // Each dodecahedron face's neighbours (1-indexed).
+  const DODECA = [
+    [2,3,4,5,6], [1,3,6,7,8], [1,2,4,8,9], [1,3,5,9,10],
+    [1,4,6,10,11], [1,2,5,7,11], [2,6,8,11,12], [2,3,7,9,12],
+    [3,4,8,10,12], [4,5,9,11,12], [5,6,7,10,12], [7,8,9,10,11]
+  ];
+  const out = new Array(12);
+  for (let p = 0; p < 12; p++) {
+    let mask = 0xfff;
+    for (let f = 0; f < 5; f++) mask ^= 1 << (DODECA[p][f] - 1);
+    out[p] = mask;
+  }
+  return out;
+})();
+
+const GOLAY_CODES = (() => {
+  const codes = new Int32Array(4096);
+  for (let data = 0; data < 4096; data++) {
+    let prty = 0;
+    for (let p = 0; p < 12; p++) {
+      prty = (prty << 1) | parity32(data & GOLAY_PARITIES[p]);
+    }
+    codes[data] = (data << 12) | prty;
+  }
+  return codes;
+})();
+
+function golayEncode(data) {
+  return GOLAY_CODES[data & 0xfff];
+}
+
+// 12-bit syndrome of a 24-bit received word.
+//   syndrome[p] = parity(data part bits in parities[p] mask) XOR parity bit p.
+function golaySyndrome(r) {
+  const dataPart = (r >>> 12) & 0xfff;
+  const parityPart = r & 0xfff;
+  let s = 0;
+  for (let p = 0; p < 12; p++) {
+    const sp = parity32(dataPart & GOLAY_PARITIES[p])
+             ^ ((parityPart >>> (11 - p)) & 1);
+    s = (s << 1) | sp;
+  }
+  return s;
+}
+
+const GOLAY_SYNDROME_ERROR = (() => {
+  // Map 12-bit syndrome → 24-bit error pattern of weight ≤3.
+  // Sentinel -1 means "no error pattern within 3 bits", i.e. uncorrectable.
+  const t = new Int32Array(4096);
+  t.fill(-1);
+  t[golaySyndrome(0)] = 0;
+  for (let i = 0; i < 24; i++) {
+    const e = 1 << i;
+    t[golaySyndrome(e)] = e;
+  }
+  for (let i = 0; i < 24; i++) {
+    for (let j = i + 1; j < 24; j++) {
+      const e = (1 << i) | (1 << j);
+      t[golaySyndrome(e)] = e;
+    }
+  }
+  for (let i = 0; i < 24; i++) {
+    for (let j = i + 1; j < 24; j++) {
+      for (let k = j + 1; k < 24; k++) {
+        const e = (1 << i) | (1 << j) | (1 << k);
+        t[golaySyndrome(e)] = e;
+      }
+    }
+  }
+  return t;
+})();
+
+function golayDecode(received) {
+  received &= 0xffffff;
+  const s = golaySyndrome(received);
+  const e = GOLAY_SYNDROME_ERROR[s];
+  if (e < 0) {
+    return { data: (received >>> 12) & 0xfff, errors: 4, reparable: false };
+  }
+  const corrected = received ^ e;
+  return {
+    data: (corrected >>> 12) & 0xfff,
+    errors: popcount24(e),
+    reparable: true
+  };
+}
+
+// ============================================================================
+// Bit interleaver: spread the N bits of a Golay codeword across N strips.
+//   For codeword #s and bit #b (MSB first), seq = s + b * FEC_SYMS.
+// Standalone helpers used by tests.
+// ============================================================================
+function interleaveBits(codewords24, fecSyms) {
+  // codewords24: array of 24-bit ints, length ≤ fecSyms.
+  // returns Uint8Array of length fecSyms*24, bit b of codeword s at index s + b*fecSyms.
+  const out = new Uint8Array(fecSyms * FEC_LARGEBITS);
+  for (let s = 0; s < codewords24.length; s++) {
+    const c = codewords24[s];
+    for (let shift = FEC_LARGEBITS - 1; shift >= 0; shift--) {
+      const idx = s + (FEC_LARGEBITS - 1 - shift) * fecSyms;
+      out[idx] = (c >>> shift) & 1;
+    }
+  }
+  return out;
+}
+
+function deinterleaveBits(bits, fecSyms) {
+  // Inverse of interleaveBits. Returns array of 24-bit ints, length fecSyms.
+  const out = new Int32Array(fecSyms);
+  for (let s = 0; s < fecSyms; s++) {
+    let c = 0;
+    for (let b = 0; b < FEC_LARGEBITS; b++) {
+      const shift = FEC_LARGEBITS - 1 - b;
+      c |= bits[s + b * fecSyms] << shift;
+    }
+    out[s] = c;
+  }
+  return out;
+}
+
+// ============================================================================
+// Page rendering: build a Uint8Array of 1 byte per cell (0=black, 0xff=white)
+// containing border + crosses + (later) data bits. The text strip is left
+// black; the canvas-stage paints the format-string label over it in white.
+// ============================================================================
+function createBlankPage(geom) {
+  const cells = new Uint8Array(geom.WIDTH * geom.HEIGHT);
+  cells.fill(0xff);
+
+  // Top border rows.
+  cells.fill(0x00, 0, BORDER * geom.WIDTH);
+  // Side borders along the data area.
+  for (let y = BORDER; y < BORDER + geom.DATA_HEIGHT; y++) {
+    const row = y * geom.WIDTH;
+    cells.fill(0x00, row, row + BORDER);
+    cells.fill(0x00, row + geom.WIDTH - BORDER, row + geom.WIDTH);
+  }
+  // Text strip (black, label is rendered on top later via canvas).
+  const textStart = (BORDER + geom.DATA_HEIGHT) * geom.WIDTH;
+  cells.fill(0x00, textStart, textStart + TEXT_HEIGHT * geom.WIDTH);
+  // Bottom border.
+  const bottom = (BORDER + geom.DATA_HEIGHT + TEXT_HEIGHT) * geom.WIDTH;
+  cells.fill(0x00, bottom, bottom + BORDER * geom.WIDTH);
+
+  // Sync crosses.
+  const maxY = geom.HEIGHT - TEXT_HEIGHT - BORDER - 2 * CHALF;
+  const maxX = geom.WIDTH  - BORDER - 2 * CHALF;
+  for (let y = BORDER; y <= maxY; y += CPITCH) {
+    for (let x = BORDER; x <= maxX; x += CPITCH) {
+      drawCross(cells, geom.WIDTH, x, y);
+    }
+  }
+  return cells;
+}
+
+function drawCross(cells, stride, x, y) {
+  // 2x2 checkerboard: BW / WB, each quadrant CHALF x CHALF.
+  for (let r = 0; r < CHALF; r++) {
+    const row = (y + r) * stride + x;
+    cells.fill(0x00, row, row + CHALF);
+    cells.fill(0xff, row + CHALF, row + 2 * CHALF);
+    const row2 = row + CHALF * stride;
+    cells.fill(0xff, row2, row2 + CHALF);
+    cells.fill(0x00, row2 + CHALF, row2 + 2 * CHALF);
+  }
+}
+
+// ============================================================================
+// Encoder pipeline: bytes → Golay-coded interleaved page cells.
+//   Mirrors optar.c::feed_data and optar.java::encode.
+// ============================================================================
+function encodeBytes(bytes, opts) {
+  const xcrosses = (opts && opts.xcrosses) || 65;
+  const ycrosses = (opts && opts.ycrosses) || 93;
+  const geom = makeGeometry(xcrosses, ycrosses);
+
+  const totalBits = bytes.length * 8;
+  const expectedPages = Math.max(1, Math.ceil(totalBits / geom.NETBITS));
+
+  const pages = [];
+  let cells = createBlankPage(geom);
+  let symbolIndex = 0;
+  let payloadAccu = 1;
+
+  function writeChannelBit(bit, seq) {
+    const xy = seq2xy(geom, seq);
+    const x = xy[0] + BORDER;
+    const y = xy[1] + BORDER;
+    cells[x + y * geom.WIDTH] = (bit & 1) ? 0x00 : 0xff;
+  }
+
+  function writePayloadBit(bit) {
+    payloadAccu = ((payloadAccu << 1) | (bit & 1)) & 0x1fff;
+    if (payloadAccu & (1 << FEC_SMALLBITS)) {
+      const code = golayEncode(payloadAccu & 0xfff);
+      if (symbolIndex >= geom.FEC_SYMS) {
+        pages.push(cells);
+        cells = createBlankPage(geom);
+        symbolIndex = 0;
+      }
+      for (let shift = FEC_LARGEBITS - 1; shift >= 0; shift--) {
+        const seq = symbolIndex + (FEC_LARGEBITS - 1 - shift) * geom.FEC_SYMS;
+        writeChannelBit((code >>> shift) & 1, seq);
+      }
+      payloadAccu = 1;
+      symbolIndex++;
+    }
+  }
+
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    for (let bit = 7; bit >= 0; bit--) writePayloadBit((b >>> bit) & 1);
+  }
+  // Flush partial codeword with FEC_SMALLBITS-1 zeros (matches optar.c).
+  for (let i = FEC_SMALLBITS - 1; i > 0; i--) writePayloadBit(0);
+  pages.push(cells);
+
+  return { geom, pages, nPages: pages.length, expectedPages };
+}
+
+// Renders a page (cells array at logical resolution) to a fresh canvas at
+// `scale` pixels per cell. Paints the format-string label on the text strip.
+function renderPageToCanvas(cells, geom, scale, opts) {
+  scale = scale | 0;
+  if (scale < 1) scale = 1;
+  const W = geom.WIDTH * scale;
+  const H = geom.HEIGHT * scale;
+
+  // Step 1: render cells to a logical-size canvas via ImageData.
+  const small = document.createElement('canvas');
+  small.width = geom.WIDTH;
+  small.height = geom.HEIGHT;
+  const sctx = small.getContext('2d');
+  const img = sctx.createImageData(geom.WIDTH, geom.HEIGHT);
+  const d = img.data;
+  for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
+    const v = cells[i];
+    d[j] = v; d[j + 1] = v; d[j + 2] = v; d[j + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+
+  // Step 2: scale up via drawImage with smoothing disabled.
+  const big = document.createElement('canvas');
+  big.width = W;
+  big.height = H;
+  const bctx = big.getContext('2d');
+  bctx.imageSmoothingEnabled = false;
+  bctx.drawImage(small, 0, 0, W, H);
+
+  // Step 3: paint label text in the text strip.
+  if (opts && opts.label) {
+    const stripTop = (BORDER + geom.DATA_HEIGHT) * scale;
+    const stripH   = TEXT_HEIGHT * scale;
+    bctx.fillStyle = 'white';
+    const fontPx = Math.max(8, Math.floor(stripH * 0.7));
+    bctx.font = `${fontPx}px monospace`;
+    bctx.textBaseline = 'middle';
+    bctx.textAlign = 'left';
+    const textY = stripTop + stripH / 2;
+    const textX = (BORDER + 4) * scale;
+    bctx.fillText(opts.label, textX, textY);
+  }
+  return big;
+}
+
+// ============================================================================
+// Decoder pipeline: ImageData → bytes.
+// Assumes the image is axis-aligned (browser-rendered or carefully scanned).
+// Robust to global noise via per-image threshold; not robust to rotation/skew
+// (the Java/C reference handles that with cross-correlation; out of scope
+// for the default browser fast-path).
+// ============================================================================
+function imageDataToGray(imgData) {
+  const d = imgData.data;
+  const n = imgData.width * imgData.height;
+  const out = new Uint8Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    // Luma approximation; for grayscale RGB equal channels this is exact.
+    out[i] = (d[j] * 299 + d[j + 1] * 587 + d[j + 2] * 114 + 500) / 1000 | 0;
+  }
+  return out;
+}
+
+// Find the outer bounding box of the printed page (solid-black border on
+// all four sides). Earlier versions tried to walk *inward* from the border
+// to find the data area, but the all-black text strip below the data —
+// flecked with antialiased label glyphs — would steal a few rows from the
+// bottom and miscalibrate the y-scale. Anchoring on the *outer* edges and
+// reconstructing the data area from known geometry sidesteps that entirely.
+function findPageBox(gray, W, H, threshold) {
+  let top = H, bottom = -1, left = W, right = -1;
+  for (let y = 0; y < H; y++) {
+    const off = y * W;
+    let firstX = -1, lastX = -1;
+    for (let x = 0; x < W; x++) {
+      if (gray[off + x] < threshold) {
+        if (firstX < 0) firstX = x;
+        lastX = x;
+      }
+    }
+    if (firstX >= 0) {
+      if (y < top) top = y;
+      bottom = y;
+      if (firstX < left) left = firstX;
+      if (lastX > right) right = lastX;
+    }
+  }
+  return { top, bottom, left, right };
+}
+
+function detectThreshold(gray) {
+  // Otsu-lite: pick the cut that minimises within-class variance over the
+  // grayscale histogram.
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
+  const total = gray.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, varMax = 0, threshold = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const v = wB * wF * (mB - mF) * (mB - mF);
+    if (v > varMax) { varMax = v; threshold = t; }
+  }
+  return threshold;
+}
+
+function decodeImageData(imgData, opts) {
+  const xcrosses = (opts && opts.xcrosses) || 65;
+  const ycrosses = (opts && opts.ycrosses) || 93;
+  const geom = makeGeometry(xcrosses, ycrosses);
+
+  const W = imgData.width;
+  const H = imgData.height;
+  const gray = imageDataToGray(imgData);
+
+  const threshold = detectThreshold(gray);
+  const box = findPageBox(gray, W, H, threshold);
+
+  // The page outer rectangle is WIDTH x HEIGHT cells (border on every side).
+  // From its pixel size we recover scale, then the data area sits BORDER
+  // cells in from each edge.
+  const pageW = box.right  - box.left + 1;
+  const pageH = box.bottom - box.top  + 1;
+  const sx = pageW / geom.WIDTH;
+  const sy = pageH / geom.HEIGHT;
+  const innerLeft = box.left + BORDER * sx;
+  const innerTop  = box.top  + BORDER * sy;
+
+  // Sample bit at given data-cell coordinate (0..DATA_WIDTH-1, 0..DATA_HEIGHT-1).
+  // We sample the centre of the cell with sub-pixel bilinear interpolation.
+  function sampleBit(cx, cy) {
+    const fx = innerLeft + (cx + 0.5) * sx;
+    const fy = innerTop  + (cy + 0.5) * sy;
+    // For scales > 1, average a small region for noise robustness.
+    const radius = Math.max(0, Math.floor(Math.min(sx, sy) * 0.25));
+    let sum = 0;
+    let count = 0;
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const px = (fx + dx) | 0;
+        const py = (fy + dy) | 0;
+        if (px < 0 || py < 0 || px >= W || py >= H) continue;
+        sum += gray[py * W + px];
+        count++;
+      }
+    }
+    const avg = count > 0 ? sum / count : 255;
+    return avg < threshold ? 1 : 0;
+  }
+
+  const errorStats = [0, 0, 0, 0, 0]; // 0 errs, 1, 2, 3, irreparable
+  const out = new Uint8Array(geom.NETBITS / 8);
+  let outIndex = 0;
+  let payloadAccu = 1;
+
+  for (let sym = 0; sym < geom.FEC_SYMS; sym++) {
+    let received = 0;
+    for (let bit = 0; bit < FEC_LARGEBITS; bit++) {
+      const seq = sym + bit * geom.FEC_SYMS;
+      const xy = seq2xy(geom, seq);
+      const cellX = xy[0];
+      const cellY = xy[1];
+      const b = sampleBit(cellX, cellY);
+      received = (received << 1) | b;
+    }
+    const dec = golayDecode(received);
+    if (dec.reparable) errorStats[dec.errors]++;
+    else errorStats[4]++;
+
+    const data12 = dec.data;
+    for (let shift = FEC_SMALLBITS - 1; shift >= 0; shift--) {
+      payloadAccu = ((payloadAccu << 1) | ((data12 >>> shift) & 1)) & 0x1ff;
+      if (payloadAccu & 0x100) {
+        out[outIndex++] = payloadAccu & 0xff;
+        payloadAccu = 1;
+      }
+    }
+  }
+
+  return { geom, bytes: out, stats: { errors: errorStats } };
+}
+
+// Read a File/Blob as Uint8Array (browser API).
+function readFileAsBytes(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// Read a File/Blob as ImageData by drawing it onto a canvas.
+function readFileAsImageData(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const cx = c.getContext('2d');
+        cx.drawImage(img, 0, 0);
+        resolve(cx.getImageData(0, 0, c.width, c.height));
+      };
+      img.onerror = () => reject(new Error('image decode failed'));
+      img.src = reader.result;
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// ============================================================================
+// Format-string utilities.
+// ============================================================================
+function buildFormatString(geom, pageNumber, totalPages, label) {
+  // 0-XCROSSES-YCROSSES-CPITCH-CHALF-FEC_ORDER-BORDER-TEXT_HEIGHT
+  const core = `0-${geom.xcrosses}-${geom.ycrosses}-${CPITCH}-${CHALF}-${FEC_ORDER}-${BORDER}-${TEXT_HEIGHT}`;
+  return `${core} ${pageNumber}/${totalPages} ${label || ''}`.trim();
+}
+
+function parseFormatString(s) {
+  // Take the first space-delimited token; split on '-'.
+  const head = s.trim().split(/\s+/)[0] || '';
+  const parts = head.split('-');
+  // Form: 0-XCROSSES-YCROSSES-CPITCH-CHALF-FEC_ORDER-BORDER-TEXT_HEIGHT
+  if (parts.length >= 8) {
+    const xcrosses = parseInt(parts[1], 10);
+    const ycrosses = parseInt(parts[2], 10);
+    if (Number.isFinite(xcrosses) && Number.isFinite(ycrosses)) {
+      return { xcrosses, ycrosses };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// Test API: expose pure functions for Puppeteer to drive directly.
+// ============================================================================
+window.OPTAR = {
+  // Constants
+  BORDER, CHALF, CPITCH, TEXT_HEIGHT, FEC_LARGEBITS, FEC_SMALLBITS,
+  // Geometry & layout
+  makeGeometry, seq2xy,
+  // Golay
+  golayEncode, golayDecode, golaySyndrome, popcount24,
+  GOLAY_CODES, GOLAY_PARITIES,
+  // Interleave helpers
+  interleaveBits, deinterleaveBits,
+  // Pipeline
+  encodeBytes, decodeImageData,
+  // Render
+  createBlankPage, renderPageToCanvas,
+  // Format string
+  buildFormatString, parseFormatString
+};
+
+// ============================================================================
+// UI controllers.
+// ============================================================================
+const $ = (id) => document.getElementById(id);
+
+// Tab switching.
+const tabButtons = document.querySelectorAll('.tabs button');
+const panels = {
+  encode:   $('tab-encode'),
+  decode:   $('tab-decode'),
+  settings: $('tab-settings'),
+  help:     $('tab-help'),
+};
+tabButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+    Object.entries(panels).forEach(([k, p]) => {
+      p.classList.toggle('hidden', k !== btn.dataset.tab);
+    });
+  });
+});
+
+// Settings panel: live-update output dimensions + paper preset.
+const setX = $('set-xcrosses');
+const setY = $('set-ycrosses');
+const setScale = $('set-scale');
+const setPaper = $('set-paper');
+const setDims = $('set-dims');
+function refreshSettings() {
+  const xcrosses = parseInt(setX.value, 10) || 65;
+  const ycrosses = parseInt(setY.value, 10) || 93;
+  const scale = parseInt(setScale.value, 10) || DEFAULT_SCALE;
+  const geom = makeGeometry(xcrosses, ycrosses);
+  setDims.textContent = `${geom.WIDTH * scale} x ${geom.HEIGHT * scale} px, ` +
+                        `~${(geom.NETBITS / 8 / 1024).toFixed(1)} KB / page`;
+}
+[setX, setY, setScale].forEach(el => el.addEventListener('input', refreshSettings));
+setPaper.addEventListener('change', () => {
+  if (setPaper.value === 'A4') { setX.value = 65; setY.value = 93; }
+  else                         { setX.value = 67; setY.value = 87; }
+  refreshSettings();
+});
+refreshSettings();
+
+// Encode tab.
+const encFile = $('enc-file');
+const encLabel = $('enc-label');
+const encGo = $('enc-go');
+const encInfo = $('enc-info');
+const encPages = $('enc-pages');
+let encSelectedFile = null;
+
+function currentSettings() {
+  return {
+    xcrosses: parseInt(setX.value, 10) || 65,
+    ycrosses: parseInt(setY.value, 10) || 93,
+    scale:    parseInt(setScale.value, 10) || DEFAULT_SCALE,
+  };
+}
+
+encFile.addEventListener('change', () => {
+  encSelectedFile = encFile.files && encFile.files[0] ? encFile.files[0] : null;
+  if (!encSelectedFile) {
+    encInfo.textContent = 'Choose a file to encode.';
+    encGo.disabled = true;
+    return;
+  }
+  const settings = currentSettings();
+  const geom = makeGeometry(settings.xcrosses, settings.ycrosses);
+  const bytesPerPage = geom.NETBITS / 8;
+  const pages = Math.max(1, Math.ceil(encSelectedFile.size / bytesPerPage));
+  encInfo.textContent = `${encSelectedFile.name} (${encSelectedFile.size} bytes) → ${pages} page${pages > 1 ? 's' : ''}`;
+  encGo.disabled = false;
+});
+
+encGo.addEventListener('click', async () => {
+  if (!encSelectedFile) return;
+  encGo.disabled = true;
+  encPages.innerHTML = '';
+  encInfo.textContent = 'Encoding...';
+  try {
+    const settings = currentSettings();
+    const bytes = await readFileAsBytes(encSelectedFile);
+    const enc = encodeBytes(bytes, settings);
+
+    encInfo.textContent = `Encoded ${bytes.length} bytes into ${enc.nPages} page${enc.nPages > 1 ? 's' : ''}.`;
+
+    const labelBase = (encLabel.value || encSelectedFile.name).slice(0, 40);
+    for (let i = 0; i < enc.pages.length; i++) {
+      const pageNumber = i + 1;
+      const formatStr = buildFormatString(enc.geom, pageNumber, enc.nPages, labelBase);
+      const canvas = renderPageToCanvas(enc.pages[i], enc.geom, settings.scale, { label: formatStr });
+
+      const card = document.createElement('div');
+      card.className = 'page-card';
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const pageLabel = document.createElement('div');
+      pageLabel.innerHTML = `<strong>Page ${pageNumber} / ${enc.nPages}</strong> &middot; ` +
+                            `<code>${formatStr}</code> &middot; ${canvas.width}×${canvas.height} px`;
+      meta.appendChild(pageLabel);
+
+      const dlBtn = document.createElement('button');
+      dlBtn.className = 'secondary';
+      dlBtn.textContent = 'Download PNG';
+      dlBtn.addEventListener('click', () => {
+        canvas.toBlob(blob => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${labelBase || 'optar'}_${String(pageNumber).padStart(4, '0')}.png`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        }, 'image/png');
+      });
+      meta.appendChild(dlBtn);
+
+      const printBtn = document.createElement('button');
+      printBtn.className = 'secondary';
+      printBtn.textContent = 'Print';
+      printBtn.addEventListener('click', () => printCanvas(canvas));
+      meta.appendChild(printBtn);
+
+      card.appendChild(meta);
+      card.appendChild(canvas);
+      encPages.appendChild(card);
+    }
+  } catch (err) {
+    encInfo.innerHTML = `<span class="bad">Encode failed: ${err.message}</span>`;
+    console.error(err);
+  } finally {
+    encGo.disabled = false;
+  }
+});
+
+function printCanvas(canvas) {
+  const host = $('print-host');
+  host.innerHTML = '';
+  host.appendChild(canvas.cloneNode(true));
+  // Replace clone's image content with the original via drawImage
+  const cloned = host.querySelector('canvas');
+  cloned.width = canvas.width;
+  cloned.height = canvas.height;
+  cloned.getContext('2d').drawImage(canvas, 0, 0);
+  // Size canvas to physical paper width via inches; assume 600 DPI canvas pixels.
+  const physInches = canvas.width / 600;
+  cloned.style.width = physInches + 'in';
+  cloned.style.height = (canvas.height / 600) + 'in';
+  window.print();
+}
+
+// Decode tab.
+const decFiles = $('dec-files');
+const decFormat = $('dec-format');
+const decGo = $('dec-go');
+const decStatus = $('dec-status');
+const decStats = $('dec-stats');
+const decOutput = $('dec-output');
+let decSelectedFiles = [];
+
+decFiles.addEventListener('change', () => {
+  decSelectedFiles = Array.from(decFiles.files || []);
+  decSelectedFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (!decSelectedFiles.length) {
+    decStatus.textContent = 'Choose one or more page images.';
+    decGo.disabled = true;
+  } else {
+    decStatus.textContent = `${decSelectedFiles.length} page${decSelectedFiles.length > 1 ? 's' : ''} selected.`;
+    decGo.disabled = false;
+  }
+});
+
+decGo.addEventListener('click', async () => {
+  if (!decSelectedFiles.length) return;
+  decGo.disabled = true;
+  decStats.innerHTML = '';
+  decOutput.innerHTML = '';
+  decStatus.textContent = 'Decoding...';
+
+  try {
+    const fmt = parseFormatString(decFormat.value);
+    if (!fmt) throw new Error('Unable to parse format string');
+
+    const allBytes = [];
+    const aggStats = [0, 0, 0, 0, 0];
+
+    for (let i = 0; i < decSelectedFiles.length; i++) {
+      const file = decSelectedFiles[i];
+      decStatus.textContent = `Decoding page ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
+      const imgData = await readFileAsImageData(file);
+      const result = decodeImageData(imgData, fmt);
+      allBytes.push(result.bytes);
+      for (let k = 0; k < 5; k++) aggStats[k] += result.stats.errors[k];
+
+      const stat = document.createElement('div');
+      const total = result.stats.errors.reduce((a, b) => a + b, 0);
+      stat.innerHTML = `<strong>${file.name}</strong>: ` +
+        `<span class="stat ok">0-err ${result.stats.errors[0]}</span>` +
+        `<span class="stat">1-err ${result.stats.errors[1]}</span>` +
+        `<span class="stat">2-err ${result.stats.errors[2]}</span>` +
+        `<span class="stat warn">3-err ${result.stats.errors[3]}</span>` +
+        `<span class="stat bad">irreparable ${result.stats.errors[4]}</span>` +
+        ` &middot; ${total} symbols`;
+      decStats.appendChild(stat);
+    }
+
+    // Concatenate all pages.
+    let total = 0;
+    for (const b of allBytes) total += b.length;
+    const merged = new Uint8Array(total);
+    let off = 0;
+    for (const b of allBytes) { merged.set(b, off); off += b.length; }
+
+    decStatus.innerHTML =
+      `Decoded ${merged.length} byte${merged.length === 1 ? '' : 's'} ` +
+      `(includes zero-padding to fill the last page). ` +
+      `<strong>Aggregate Golay:</strong> 0-err ${aggStats[0]}, 1-err ${aggStats[1]}, ` +
+      `2-err ${aggStats[2]}, 3-err ${aggStats[3]}, irreparable ${aggStats[4]}.`;
+
+    const blob = new Blob([merged], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'decoded.bin';
+    a.textContent = '↓ Download decoded file';
+    a.className = 'primary';
+    a.style.display = 'inline-block';
+    a.style.padding = '10px 16px';
+    a.style.background = 'var(--accent)';
+    a.style.color = 'white';
+    a.style.borderRadius = '4px';
+    a.style.textDecoration = 'none';
+    decOutput.appendChild(a);
+  } catch (err) {
+    decStatus.innerHTML = `<span class="bad">Decode failed: ${err.message}</span>`;
+    console.error(err);
+  } finally {
+    decGo.disabled = false;
+  }
+});
+
+// Signal that the app is ready (used by the test harness).
+window.OPTAR_READY = true;
+</script>
+</body>
+</html>
