@@ -38,7 +38,7 @@ function Build-Subset {
     $stagedPkg = Join-Path $staging $Pkg
     New-Item -ItemType Directory -Path $stagedPkg | Out-Null
     try {
-        $always = @('Common','Golay','Pgm')
+        $always = @('Common','Bch','Pgm')
         foreach ($cls in ($always + $Classes)) {
             $main = Join-Path $Out "$Pkg/$cls.class"
             if (Test-Path $main) { Copy-Item $main $stagedPkg }

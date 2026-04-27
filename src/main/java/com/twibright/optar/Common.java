@@ -45,10 +45,10 @@ public final class Common {
 
     public static final long TOTALBITS = (long) REPPIXELS * (YCROSSES - 1) + NARROWPIXELS;
 
-    /** FEC_ORDER=1 means Golay(24,12). Other values (not supported here) mean Hamming. */
-    public static final int FEC_ORDER     = 1;
-    public static final int FEC_LARGEBITS = 24;
-    public static final int FEC_SMALLBITS = 12;
+    /** FEC_ORDER=10 means BCH(63,45,t=3). (1=Golay legacy; 2..5 were Hamming variants.) */
+    public static final int FEC_ORDER     = 10;
+    public static final int FEC_LARGEBITS = 63;
+    public static final int FEC_SMALLBITS = 45;
 
     public static final long FEC_SYMS = TOTALBITS / FEC_LARGEBITS;
     public static final long NETBITS  = FEC_SYMS * FEC_SMALLBITS;

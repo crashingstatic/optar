@@ -34,8 +34,9 @@ public final class Optar {
     private final int    nPages;
 
     private int pageNumber;
-    private int payloadAccu = 1;
-    private int symbolIndex;
+    // BCH(63,45) needs a 46-bit accumulator (45 data bits + sentinel) — long.
+    private long payloadAccu = 1L;
+    private int  symbolIndex;
 
     private Optar(String base, String label, int nPages) {
         this.base   = base;
@@ -89,18 +90,19 @@ public final class Optar {
     }
 
     private void writePayloadBit(int bit) {
-        payloadAccu = (payloadAccu << 1) | (bit & 1);
-        if ((payloadAccu & (1 << Common.FEC_SMALLBITS)) != 0) {
-            int code = Golay.encode(payloadAccu & 0xfff);
+        payloadAccu = (payloadAccu << 1) | (bit & 1L);
+        if ((payloadAccu & (1L << Common.FEC_SMALLBITS)) != 0) {
+            long data = payloadAccu & ((1L << Common.FEC_SMALLBITS) - 1);
+            long code = Bch.encode(data);
             if (symbolIndex >= Common.FEC_SYMS) {
                 newPage();
                 symbolIndex = 0;
             }
             for (int shift = Common.FEC_LARGEBITS - 1; shift >= 0; shift--) {
                 long seq = symbolIndex + (long) (Common.FEC_LARGEBITS - 1 - shift) * Common.FEC_SYMS;
-                writeChannelBit((code >> shift) & 1, seq);
+                writeChannelBit((int) ((code >> shift) & 1L), seq);
             }
-            payloadAccu = 1;
+            payloadAccu = 1L;
             symbolIndex++;
         }
     }

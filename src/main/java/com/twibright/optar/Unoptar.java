@@ -74,9 +74,9 @@ public final class Unoptar {
     private OutputStream payloadOut;
     private int payloadAccu = 1;
 
-    // Accumulator for hamming/golay symbol bits, reset each symbol.
-    private int readHammingAccu;
-    private int readHammingBits;
+    // Accumulator for FEC symbol bits, reset each symbol. BCH(63,45) needs a long.
+    private long readHammingAccu;
+    private int  readHammingBits;
 
     private boolean badBitsHeaderPrinted;
 
@@ -89,7 +89,7 @@ public final class Unoptar {
                 "the format argument; the base is the filename part before the first\n" +
                 "underscore.\n\n" +
                 "Example:\n" +
-                "  unoptar 0-65-93-24-3-1-2-24 scan > out.ogg\n");
+                "  unoptar 0-65-93-24-3-10-2-24 scan > out.ogg\n");
             System.exit(1);
         }
         Unoptar u = new Unoptar();
@@ -124,16 +124,16 @@ public final class Unoptar {
             (double) Common.WIDTH * formatHeight / 8 / 1000);
         LOG.printf("formatted raw channel capacity %.6g kB, ",
             (double) Common.TOTALBITS / 8 / 1000);
-        LOG.printf("net Golay payload capacity %.6g kB, ",
+        LOG.printf("net BCH payload capacity %.6g kB, ",
             (double) Common.NETBITS / 8 / 1000);
-        LOG.printf("%d Golay symbols, ", Common.FEC_SYMS);
-        LOG.printf("%d bits unused (incomplete Hamming symbol), ",
+        LOG.printf("%d BCH symbols, ", Common.FEC_SYMS);
+        LOG.printf("%d bits unused (incomplete BCH symbol), ",
             Common.TOTALBITS - Common.USEDBITS);
         LOG.printf("border taking %.6g%% of unformatted capacity, ",
             100 * (1.0 - (double) Common.DATA_WIDTH * Common.DATA_HEIGHT / Common.WIDTH / formatHeight));
         LOG.printf("border with crosses taking %.6g%% of unformatted capacity, ",
             100 * (1.0 - (double) Common.TOTALBITS / Common.WIDTH / formatHeight));
-        LOG.printf("border with crosses and Golay taking %.6g%% of unformatted capacity.%n",
+        LOG.printf("border with crosses and BCH taking %.6g%% of unformatted capacity.%n",
             100 * (1.0 - (double) Common.NETBITS / Common.WIDTH / formatHeight));
     }
 
@@ -819,14 +819,15 @@ public final class Unoptar {
     }
 
     private void readHammingBit(int inputBit, int symNo) throws RuntimeException {
-        readHammingAccu = (readHammingAccu << 1) | (inputBit & 1);
+        readHammingAccu = (readHammingAccu << 1) | (inputBit & 1L);
         readHammingBits++;
         if (readHammingBits >= Common.FEC_LARGEBITS) {
-            int data = ungolay(readHammingAccu & 0xffffff, symNo);
+            long mask = (1L << Common.FEC_LARGEBITS) - 1;
+            long data = unbch(readHammingAccu & mask, symNo);
             for (int shift = Common.FEC_SMALLBITS - 1; shift >= 0; shift--) {
-                readPayloadBit((data >> shift) & 1);
+                readPayloadBit((int) ((data >> shift) & 1L));
             }
-            readHammingAccu = 0;
+            readHammingAccu = 0L;
             readHammingBits = 0;
         }
     }
@@ -843,39 +844,46 @@ public final class Unoptar {
         }
     }
 
-    private int ungolay(int in, int symNo) {
-        in &= 0xffffff;
-        int topData = (in >>> 12) & 0xfff;
-        if (Golay.CODES[topData] == in) {
-            golayStats[0]++;
-            return topData;
-        }
-        for (int d = 0; d < 4096; d++) {
-            int code = Golay.CODES[d];
-            int diff = code ^ in;
-            int n = Integer.bitCount(diff);
-            if (n <= 3) {
-                golayBadBits(code, in, symNo);
-                golayStats[n]++;
-                return d;
+    private long unbch(long in, int symNo) {
+        long mask = (1L << Common.FEC_LARGEBITS) - 1;
+        in &= mask;
+        Bch.Decoded dec = Bch.decode(in);
+        if (!dec.reparable) {
+            LOG.println();
+            for (int badbit = 0; badbit < Common.FEC_LARGEBITS; badbit++) {
+                printBadbit(symNo, badbit, 2);
             }
+            LOG.println("!");
+            irreparable += 4;
+            badTotal += 4;
+            golayStats[4]++;
+            return in >>> Common.FEC_SMALLBITS;
         }
-        LOG.println();
-        for (int badbit = 0; badbit < 24; badbit++) {
-            printBadbit(symNo, badbit, 2);
+        if (dec.errors > 0) {
+            long corrected = (dec.data << Common.FEC_SMALLBITS) | (in & ((1L << Common.FEC_SMALLBITS) - 1));
+            // For reporting, recover the actual corrected codeword by XOR-ing
+            // bit positions where corrected differs from received. Cheaper to
+            // recompute here than thread the locator through Bch.decode.
+            long codeword = bchEncodeCanonical(dec.data);
+            unbchBadBits(codeword, in, symNo);
         }
-        LOG.println("!");
-        irreparable += 4;
-        badTotal += 4;
-        golayStats[4]++;
-        return topData;
+        if (dec.errors >= 0 && dec.errors <= 3) {
+            golayStats[dec.errors]++;
+        }
+        return dec.data;
     }
 
-    private void golayBadBits(int right, int wrong, long symNo) {
-        int diff = right ^ wrong;
-        for (int bit = 23; bit >= 0; bit--) {
-            if ((diff & (1 << bit)) != 0) {
-                printBadbit((int) symNo, 23 - bit, (wrong >> bit) & 1);
+    /** Re-encode canonical 63-bit codeword for the given 45-bit data; used only
+     *  for bad-bit reporting (to know which positions were flipped). */
+    private static long bchEncodeCanonical(long data) {
+        return Bch.encode(data);
+    }
+
+    private void unbchBadBits(long right, long wrong, long symNo) {
+        long diff = right ^ wrong;
+        for (int bit = Common.FEC_LARGEBITS - 1; bit >= 0; bit--) {
+            if (((diff >> bit) & 1L) != 0) {
+                printBadbit((int) symNo, (Common.FEC_LARGEBITS - 1) - bit, (int) ((wrong >> bit) & 1L));
             }
         }
     }
@@ -921,7 +929,7 @@ public final class Unoptar {
             LOG.println("No bad bits!");
         }
         LOG.printf(
-            "Golay stats%n===========%n" +
+            "BCH stats%n=========%n" +
             "0 bad bits      %d%n" +
             "1 bad bit       %d%n" +
             "2 bad bits      %d%n" +

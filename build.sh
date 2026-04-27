@@ -35,7 +35,7 @@ build_combined() {
 }
 
 # Build a focused JAR containing only the listed class basenames plus any
-# bundled resources. Shared support classes (Common, Golay, Pgm) are always
+# bundled resources. Shared support classes (Common, Bch, Pgm) are always
 # included.
 build_subset() {
   local jarname="$1" mainclass="$2"
@@ -44,9 +44,9 @@ build_subset() {
   staging=$(mktemp -d)
   trap "rm -rf '$staging'" RETURN
   mkdir -p "$staging/$PKG"
-  for cls in Common Golay Pgm "$@"; do
+  for cls in Common Bch Pgm "$@"; do
     cp "$OUT/$PKG/$cls".class "$staging/$PKG/" 2>/dev/null || true
-    # Include inner classes (e.g. Pgm$Image, Golay$Decoded).
+    # Include inner classes (e.g. Pgm$Image, Bch$Decoded).
     for inner in "$OUT/$PKG/$cls"\$*.class; do
       [ -e "$inner" ] && cp "$inner" "$staging/$PKG/"
     done
