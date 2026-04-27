@@ -312,6 +312,76 @@ test('scale=3 round-trip (UI default)', async (page) => {
   assertEqual(r.irreparable, 0);
 });
 
+// ---------- header wrap/unwrap tests ----------
+
+test('header: wrap/unwrap round-trip preserves bytes + filename + hash', async (page) => {
+  const r = await page.evaluate(async () => {
+    const N = 1024;
+    const input = new Uint8Array(N);
+    for (let i = 0; i < N; i++) input[i] = (i * 13 + 7) & 0xff;
+    const wrapped = await OPTAR.wrapWithHeader(input, 'hello.bin');
+    const u = await OPTAR.unwrapHeader(wrapped);
+    let bodyMatch = u.body.length === N;
+    for (let i = 0; bodyMatch && i < N; i++) if (u.body[i] !== input[i]) bodyMatch = false;
+    return {
+      hasHeader: u.hasHeader,
+      filename: u.filename,
+      hashOk: u.hashOk,
+      bodyMatch,
+      headerOverhead: wrapped.length - input.length,
+    };
+  });
+  assert(r.hasHeader, 'unwrap must detect the magic');
+  assertEqual(r.filename, 'hello.bin');
+  assert(r.hashOk, 'embedded SHA-256 must verify');
+  assert(r.bodyMatch, 'unwrapped body must match the input bytes');
+  // 4 magic + 32 sha + 9 ("hello.bin") + 1 NUL = 46
+  assertEqual(r.headerOverhead, 46);
+});
+
+test('header: unwrap on raw bytes (no magic) → hasHeader=false', async (page) => {
+  const r = await page.evaluate(async () => {
+    const raw = new Uint8Array([1, 2, 3, 4, 5]);
+    const u = await OPTAR.unwrapHeader(raw);
+    return { hasHeader: u.hasHeader, bodyLen: u.body.length };
+  });
+  assertEqual(r.hasHeader, false);
+  assertEqual(r.bodyLen, 5);
+});
+
+test('header: tampered body fails hash check', async (page) => {
+  const r = await page.evaluate(async () => {
+    const input = new Uint8Array([1, 2, 3, 4]);
+    const wrapped = await OPTAR.wrapWithHeader(input, 'a');
+    // Flip one body byte (after the header).
+    wrapped[wrapped.length - 1] ^= 0x01;
+    const u = await OPTAR.unwrapHeader(wrapped);
+    return { hasHeader: u.hasHeader, hashOk: u.hashOk };
+  });
+  assert(r.hasHeader);
+  assertEqual(r.hashOk, false, 'tampered body must fail hash verification');
+});
+
+test('header: end-to-end via encode/decode preserves filename + hash', async (page) => {
+  const r = await page.evaluate(async () => {
+    const N = 256;
+    const input = new Uint8Array(N);
+    for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
+    const wrapped = await OPTAR.wrapWithHeader(input, 'recovered.png');
+    const enc = OPTAR.encodeBytes(wrapped);
+    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'h' });
+    const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    const dec = OPTAR.decodeImageData(id);
+    const u = await OPTAR.unwrapHeader(dec.bytes);
+    let match = u.body && u.body.length >= N;
+    for (let i = 0; match && i < N; i++) if (u.body[i] !== input[i]) match = false;
+    return { filename: u.filename, hashOk: u.hashOk, match };
+  });
+  assertEqual(r.filename, 'recovered.png');
+  assert(r.hashOk, 'sha256 must verify after encode/decode');
+  assert(r.match, 'decoded body must equal input');
+});
+
 test('format string round-trip', async (page) => {
   const r = await page.evaluate(() => {
     const geom = OPTAR.makeGeometry(65, 93);

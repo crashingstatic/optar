@@ -41,9 +41,10 @@ function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('he
   await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
 
   const t0 = Date.now();
-  const enc = await page.evaluate((bytesArr) => {
+  const enc = await page.evaluate(async (bytesArr) => {
     const input = new Uint8Array(bytesArr);
-    const result = OPTAR.encodeBytes(input, { xcrosses: 65, ycrosses: 93 });
+    const wrapped = await OPTAR.wrapWithHeader(input, 'input.bin');
+    const result = OPTAR.encodeBytes(wrapped, { xcrosses: 65, ycrosses: 93 });
     const pngs = [];
     for (let i = 0; i < result.pages.length; i++) {
       const canvas = OPTAR.renderPageToCanvas(
@@ -52,10 +53,14 @@ function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('he
       );
       pngs.push(canvas.toDataURL('image/png'));
     }
-    return { nPages: result.pages.length, pngs, bytesPerPage: result.geom.NETBITS / 8 };
+    return {
+      nPages: result.pages.length, pngs,
+      bytesPerPage: result.geom.NETBITS / 8,
+      headerOverhead: wrapped.length - input.length,
+    };
   }, Array.from(original));
   console.log(`encoded    ${enc.nPages} page(s) in ${Date.now() - t0} ms ` +
-              `(capacity ${enc.bytesPerPage} B/page)`);
+              `(capacity ${enc.bytesPerPage} B/page, header ${enc.headerOverhead} B)`);
 
   const pngPaths = [];
   for (let i = 0; i < enc.pngs.length; i++) {
@@ -66,7 +71,7 @@ function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('he
   }
   console.log(`           wrote PNGs: ${pngPaths.map(p => path.basename(p)).join(', ')}`);
 
-  // 3) re-load PNGs from disk → decode in page
+  // 3) re-load PNGs from disk → decode in page → unwrap header
   const t1 = Date.now();
   const dec = await page.evaluate(async (pngB64s) => {
     function loadImage(src) {
@@ -92,14 +97,27 @@ function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('he
       for (let i = 0; i < decoded.bytes.length; i++) merged.push(decoded.bytes[i]);
     }
     const u8 = new Uint8Array(merged);
+    const unwrapped = await OPTAR.unwrapHeader(u8);
+    const body = unwrapped.hasHeader ? unwrapped.body : u8;
     let bin = '';
-    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-    return { bytes: btoa(bin), stats: aggStats };
+    for (let i = 0; i < body.length; i++) bin += String.fromCharCode(body[i]);
+    return {
+      bytes: btoa(bin), stats: aggStats,
+      filename: unwrapped.filename || null,
+      sha256: unwrapped.sha256 || null,
+      hashOk: unwrapped.hashOk,
+      hasHeader: unwrapped.hasHeader,
+    };
   }, pngPaths.map(p => fs.readFileSync(p).toString('base64')));
   console.log(`decoded    in ${Date.now() - t1} ms`);
   console.log(`           bch stats: 0-err=${dec.stats[0]} ` +
               `1-err=${dec.stats[1]} 2-err=${dec.stats[2]} ` +
               `3-err=${dec.stats[3]} irreparable=${dec.stats[4]}`);
+  if (dec.hasHeader) {
+    console.log(`           header: filename="${dec.filename}", sha256=${dec.sha256.slice(0,16)}…, hashOk=${dec.hashOk}`);
+  } else {
+    console.log(`           header: (none — raw mode)`);
+  }
 
   await browser.close();
 

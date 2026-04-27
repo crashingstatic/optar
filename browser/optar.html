@@ -187,10 +187,11 @@
       <input type="number" id="set-scale" value="3" min="1" max="8">
     </div>
     <div class="field">
-      <label for="set-paper">Paper size</label>
+      <label for="set-paper">Page size</label>
       <select id="set-paper">
-        <option value="A4">A4 (65 x 93)</option>
-        <option value="Letter">US Letter (67 x 87)</option>
+        <option value="A4">A4 — 210 × 297 mm (65 × 93)</option>
+        <option value="Letter">US Letter — 8.5 × 11 in (67 × 87)</option>
+        <option value="Fit">Fit to screen (auto-detect)</option>
       </select>
     </div>
     <div class="field">
@@ -201,6 +202,7 @@
   <div class="sub">
     Defaults match the original Optar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
     Decoder uses the format string to read XCROSSES/YCROSSES; other parameters are fixed.
+    <strong>Fit to screen</strong> auto-sizes each page to fit the current window so a screenshot captures the whole page without scrolling — handy when you can't print.
   </div>
 </section>
 
@@ -698,70 +700,282 @@ function renderPageToCanvas(cells, geom, scale, opts) {
 
 // ============================================================================
 // Decoder pipeline: ImageData → bytes.
-// Assumes the image is axis-aligned (browser-rendered or carefully scanned).
-// Robust to global noise via per-image threshold; not robust to rotation/skew
-// (the Java/C reference handles that with cross-correlation; out of scope
-// for the default browser fast-path).
+//
+// Ported from the C / Java reference unoptar.c so the JS decoder can read
+// real-world scans, not just self-rendered canvases. Stages:
+//   1. analyzeCutlevel    — iterative global black/white threshold.
+//   2. findCorners        — diagonal scan for the four page corners.
+//   3. computeVectors     — pixel-direction unit vectors + per-cell sizes.
+//   4. syncCrosses        — locate every (cx, cy) sync cross via correlation
+//                           with a checkerboard template; sub-pixel refine.
+//   5. crossStats         — per-cross local cutlevel for uneven illumination.
+//   6. bitCoord           — bilinear interpolation between the 4 surrounding
+//                           crosses to find the pixel center for any data cell.
+//   7. decode loop        — sample each bit, BCH-decode codeword, emit bytes.
+//
+// Magic constants are intentionally close to the C reference's tuned values.
 // ============================================================================
+
+const SYNC_WHITE_CUT = 0.10; // cut fraction used during cross-finding
+const WHITE_CUT      = 0.06; // cut fraction used during data-bit thresholding
+const CROSS_TRIM     = 0.75; // pixels trimmed from cross template before correl
+const FINESTEP       = 0.25; // sub-pixel resync step
+
 function imageDataToGray(imgData) {
   const d = imgData.data;
   const n = imgData.width * imgData.height;
   const out = new Uint8Array(n);
   for (let i = 0, j = 0; i < n; i++, j += 4) {
-    // Luma approximation; for grayscale RGB equal channels this is exact.
     out[i] = (d[j] * 299 + d[j + 1] * 587 + d[j + 2] * 114 + 500) / 1000 | 0;
   }
   return out;
 }
 
-// Find the outer bounding box of the printed page (solid-black border on
-// all four sides). Earlier versions tried to walk *inward* from the border
-// to find the data area, but the all-black text strip below the data —
-// flecked with antialiased label glyphs — would steal a few rows from the
-// bottom and miscalibrate the y-scale. Anchoring on the *outer* edges and
-// reconstructing the data area from known geometry sidesteps that entirely.
-function findPageBox(gray, W, H, threshold) {
-  let top = H, bottom = -1, left = W, right = -1;
-  for (let y = 0; y < H; y++) {
-    const off = y * W;
-    let firstX = -1, lastX = -1;
-    for (let x = 0; x < W; x++) {
-      if (gray[off + x] < threshold) {
-        if (firstX < 0) firstX = x;
-        lastX = x;
-      }
-    }
-    if (firstX >= 0) {
-      if (y < top) top = y;
-      bottom = y;
-      if (firstX < left) left = firstX;
-      if (lastX > right) right = lastX;
-    }
-  }
-  return { top, bottom, left, right };
-}
-
-function detectThreshold(gray) {
-  // Otsu-lite: pick the cut that minimises within-class variance over the
-  // grayscale histogram.
+// Iteratively converge on a global cutlevel by computing per-side RMS
+// distances from the current cut, then re-cutting between mean-black and
+// mean-white. Mirrors unoptar.c::analyze_cutlevel.
+function analyzeCutlevel(gray) {
   const hist = new Uint32Array(256);
   for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
-  const total = gray.length;
-  let sum = 0;
-  for (let i = 0; i < 256; i++) sum += i * hist[i];
-  let sumB = 0, wB = 0, varMax = 0, threshold = 127;
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t];
-    if (wB === 0) continue;
-    const wF = total - wB;
-    if (wF === 0) break;
-    sumB += t * hist[t];
-    const mB = sumB / wB;
-    const mF = (sum - sumB) / wF;
-    const v = wB * wF * (mB - mF) * (mB - mF);
-    if (v > varMax) { varMax = v; threshold = t; }
+  let total = 0;
+  for (let i = 0; i < gray.length; i++) total += gray[i];
+  const n = gray.length;
+  let cut = ((total + (n >> 1)) / n) | 0;
+  for (let iter = 0; iter < 32; iter++) {
+    const last = cut;
+    let whiteRms = 0, blackRms = 0;
+    let blackPixels = 0, whitePixels = 0;
+    for (let i = 0; i < cut; i++) {
+      const d = cut - i;
+      blackRms += hist[i] * d * d;
+      blackPixels += hist[i];
+    }
+    for (let i = cut + 1; i < 256; i++) {
+      const d = i - cut;
+      whiteRms += hist[i] * d * d;
+      whitePixels += hist[i];
+    }
+    if (whitePixels) whiteRms = Math.sqrt(whiteRms / whitePixels);
+    if (blackPixels) blackRms = Math.sqrt(blackRms / blackPixels);
+    const white = cut + whiteRms;
+    const black = cut - blackRms;
+    cut = Math.floor(white * SYNC_WHITE_CUT + black * (1 - SYNC_WHITE_CUT) + 0.5);
+    if (cut === last) break;
   }
-  return threshold;
+  return cut;
+}
+
+function getpixu(gray, W, H, x, y) {
+  if (x < 0 || y < 0 || x >= W || y >= H) return 0xff;
+  return gray[x + y * W];
+}
+
+// Diagonal sweep from a corner of the image. (xstart, ystart) is the corner
+// pixel; (dx, dy) is the inward diagonal direction. Returns [x, y] of the
+// first dark pixel encountered, or null.
+function diagScan(gray, W, H, xstart, ystart, dx, dy, cut) {
+  const limit = Math.min(W, H);
+  for (let xb = xstart, len = 1;
+       (dx > 0 ? xb < limit : xb >= 0) && len <= limit;
+       xb += dx, len++) {
+    let x = xb, y = ystart;
+    for (let c = len; c > 0; c--, x -= dx, y += dy) {
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      if (gray[x + y * W] < cut) return [x, y];
+    }
+  }
+  return null;
+}
+
+function findCorners(gray, W, H, cut) {
+  const ul = diagScan(gray, W, H, 0,     0,     1,  1, cut);
+  const ur = diagScan(gray, W, H, W - 1, 0,    -1,  1, cut);
+  const ll = diagScan(gray, W, H, 0,     H - 1, 1, -1, cut);
+  const lr = diagScan(gray, W, H, W - 1, H - 1, -1, -1, cut);
+  if (!ul || !ur || !ll || !lr) {
+    throw new Error('decoder: cannot find page corners');
+  }
+  // Match the C convention: UR.x and LR.x are the column *just past* the
+  // corner pixel (so the page extends through the full pixel), same for
+  // bottom-row corners on Y.
+  return [
+    [ul[0],     ul[1]],
+    [ur[0] + 1, ur[1]],
+    [ll[0],     ll[1] + 1],
+    [lr[0] + 1, lr[1] + 1],
+  ];
+}
+
+// Compute the right-pointing and down-pointing pixel unit vectors and the
+// average pixels-per-cell along each axis.
+function computeVectors(corners, geom) {
+  const [ul, ur, ll, lr] = corners;
+  let pixelhx = (ur[0] + lr[0] - ul[0] - ll[0]) / 2;
+  let pixelhy = (ur[1] + lr[1] - ul[1] - ll[1]) / 2;
+  let pixelvx = (ll[0] + lr[0] - ul[0] - ur[0]) / 2;
+  let pixelvy = (ll[1] + lr[1] - ul[1] - ur[1]) / 2;
+  const hl = Math.hypot(pixelhx, pixelhy);
+  const vl = Math.hypot(pixelvx, pixelvy);
+  pixelhx /= hl; pixelhy /= hl;
+  pixelvx /= vl; pixelvy /= vl;
+
+  // Pixels per logical cell, averaged over the two parallel page edges.
+  const hpixel = ((ur[0] + lr[0] - ul[0] - ll[0]) / 2) / geom.WIDTH;
+  const vpixel = ((ll[1] + lr[1] - ul[1] - ur[1]) / 2) / geom.HEIGHT;
+
+  const chalf     = Math.max(1, Math.floor(Math.min(hpixel, vpixel) * CHALF * 0.5));
+  const chalfFine = Math.max(1, Math.floor(Math.min(hpixel * (CHALF - CROSS_TRIM),
+                                                    vpixel * (CHALF - CROSS_TRIM))));
+  return { pixelhx, pixelhy, pixelvx, pixelvy, hpixel, vpixel, chalf, chalfFine };
+}
+
+function bilinear(ul, ur, ll, lr, hpar, vpar) {
+  const u = ur * hpar + ul * (1 - hpar);
+  const l = lr * hpar + ll * (1 - hpar);
+  return l * vpar + u * (1 - vpar);
+}
+
+function getPixelInterp(gray, W, H, x, y) {
+  const xi = x < 0 ? 0 : Math.floor(x);
+  const yi = y < 0 ? 0 : Math.floor(y);
+  return bilinear(
+    getpixu(gray, W, H, xi,     yi),
+    getpixu(gray, W, H, xi + 1, yi),
+    getpixu(gray, W, H, xi,     yi + 1),
+    getpixu(gray, W, H, xi + 1, yi + 1),
+    x - xi, y - yi
+  );
+}
+
+// Cross-correlation of the page image at (x, y) against the 2×2 checker
+// template. Quadrant signs match unoptar.c::cross_correl.
+function crossCorrel(gray, W, H, v, globalCut, cx, cy) {
+  let sum = 0;
+  const ch = v.chalfFine;
+  for (let dy = 0; dy < ch; dy++) {
+    for (let dx = 0; dx < ch; dx++) {
+      sum -= getPixelInterp(gray, W, H, cx + dx,         cy + dy)         - globalCut;
+      sum -= getPixelInterp(gray, W, H, cx - 1 - dx,     cy - 1 - dy)     - globalCut;
+      sum += getPixelInterp(gray, W, H, cx + dx,         cy - 1 - dy)     - globalCut;
+      sum += getPixelInterp(gray, W, H, cx - 1 - dx,     cy + dy)         - globalCut;
+    }
+  }
+  return sum;
+}
+
+// Refine a predicted cross center via correlation. Coarse search ± chalf in
+// pixels along the page axes, then sub-pixel along the same axes at
+// FINESTEP resolution.
+function resyncCross(gray, W, H, v, globalCut, coord) {
+  const phx = v.pixelhx, phy = v.pixelhy, pvx = v.pixelvx, pvy = v.pixelvy;
+  const ch = v.chalf;
+  let bestX = coord[0], bestY = coord[1];
+  let best = crossCorrel(gray, W, H, v, globalCut, bestX, bestY);
+  for (let xoff = -ch; xoff <= ch; xoff++) {
+    for (let yoff = -ch; yoff <= ch; yoff++) {
+      const sx = coord[0] + xoff * phx + yoff * pvx;
+      const sy = coord[1] + xoff * phy + yoff * pvy;
+      const r = crossCorrel(gray, W, H, v, globalCut, sx, sy);
+      if (r > best) { best = r; bestX = sx; bestY = sy; }
+    }
+  }
+  // Sub-pixel.
+  const HALFRANGE = Math.floor(0.5 / FINESTEP);
+  let fx = bestX, fy = bestY;
+  best = crossCorrel(gray, W, H, v, globalCut, fx, fy);
+  for (let xoff = -HALFRANGE; xoff <= HALFRANGE; xoff++) {
+    for (let yoff = -HALFRANGE; yoff <= HALFRANGE; yoff++) {
+      const sx = bestX + xoff * FINESTEP * phx + yoff * FINESTEP * pvx;
+      const sy = bestY + xoff * FINESTEP * phy + yoff * FINESTEP * pvy;
+      const r = crossCorrel(gray, W, H, v, globalCut, sx, sy);
+      if (r > best) { best = r; fx = sx; fy = sy; }
+    }
+  }
+  coord[0] = fx;
+  coord[1] = fy;
+}
+
+// Local cutlevel around a single cross — mirrors unoptar.c::cross_stats.
+function crossStats(gray, W, H, v, globalCut, cx, cy) {
+  const hh = Math.floor(v.hpixel * (CHALF - CROSS_TRIM));
+  const vh = Math.floor(v.vpixel * (CHALF - CROSS_TRIM));
+  let whiteRms = 0, blackRms = 0;
+  let whitePix = 0, blackPix = 0;
+  for (let xoff = -hh; xoff <= hh; xoff++) {
+    for (let yoff = -vh; yoff <= vh; yoff++) {
+      const sx = cx + xoff * v.pixelhx + yoff * v.pixelvx;
+      const sy = cy + xoff * v.pixelhy + yoff * v.pixelvy;
+      const val = getPixelInterp(gray, W, H, sx, sy);
+      if (val > globalCut)      { const d = val - globalCut; whiteRms += d * d; whitePix++; }
+      else if (val < globalCut) { const d = val - globalCut; blackRms += d * d; blackPix++; }
+    }
+  }
+  if (!whitePix || !blackPix) return globalCut;
+  whiteRms = Math.sqrt(whiteRms / whitePix);
+  blackRms = Math.sqrt(blackRms / blackPix);
+  const white = globalCut + whiteRms;
+  const black = globalCut - blackRms;
+  return white * WHITE_CUT + black * (1 - WHITE_CUT);
+}
+
+function syncCrosses(gray, W, H, corners, v, geom, globalCut) {
+  const xc = geom.xcrosses, yc = geom.ycrosses;
+  // Per-cross center coordinates (sub-pixel) and per-cross local cutlevels.
+  const crosses = new Array(xc);
+  const cutlevels = new Array(xc);
+  for (let i = 0; i < xc; i++) {
+    crosses[i] = new Array(yc);
+    cutlevels[i] = new Float32Array(yc);
+    for (let j = 0; j < yc; j++) crosses[i][j] = [0, 0];
+  }
+  // Step deltas between adjacent crosses, expressed in image pixels.
+  const rightx = ((corners[1][0] + corners[3][0] - corners[0][0] - corners[2][0]) / 2) * CPITCH / geom.WIDTH;
+  const righty = ((corners[1][1] + corners[3][1] - corners[0][1] - corners[2][1]) / 2) * CPITCH / geom.WIDTH;
+  const downx  = ((corners[2][0] + corners[3][0] - corners[0][0] - corners[1][0]) / 2) * CPITCH / geom.HEIGHT;
+  const downy  = ((corners[2][1] + corners[3][1] - corners[0][1] - corners[1][1]) / 2) * CPITCH / geom.HEIGHT;
+  // Initial estimate for cross[0][0] sits one (BORDER + CHALF)/page-side
+  // fraction in from the upper-left corner.
+  const fx = (BORDER + CHALF) / geom.WIDTH;
+  const fy = (BORDER + CHALF) / geom.HEIGHT;
+  crosses[0][0][0] = bilinear(corners[0][0], corners[1][0], corners[2][0], corners[3][0], fx, fy);
+  crosses[0][0][1] = bilinear(corners[0][1], corners[1][1], corners[2][1], corners[3][1], fx, fy);
+
+  for (let cy = 0; cy < yc; cy++) {
+    for (let cx = 0; cx < xc; cx++) {
+      if (cx > 0) {
+        crosses[cx][cy][0] = crosses[cx - 1][cy][0] + rightx;
+        crosses[cx][cy][1] = crosses[cx - 1][cy][1] + righty;
+      } else if (cy > 0) {
+        crosses[cx][cy][0] = crosses[cx][cy - 1][0] + downx;
+        crosses[cx][cy][1] = crosses[cx][cy - 1][1] + downy;
+      }
+      resyncCross(gray, W, H, v, globalCut, crosses[cx][cy]);
+      cutlevels[cx][cy] = crossStats(gray, W, H, v, globalCut,
+                                      crosses[cx][cy][0], crosses[cx][cy][1]);
+    }
+  }
+  return { crosses, cutlevels };
+}
+
+// Map a data-cell coordinate (0..DATA_WIDTH-1, 0..DATA_HEIGHT-1) to a sample
+// pixel + local cutlevel by bilinear interpolation across the four crosses
+// surrounding that cell.
+function bitCoord(crosses, cutlevels, xb, yb, geom, out) {
+  let cx = xb < CHALF ? 0 : ((xb - CHALF) / CPITCH) | 0;
+  let cy = yb < CHALF ? 0 : ((yb - CHALF) / CPITCH) | 0;
+  if (cx > geom.xcrosses - 2) cx = geom.xcrosses - 2;
+  if (cy > geom.ycrosses - 2) cy = geom.ycrosses - 2;
+  const rx = xb - (cx * CPITCH + CHALF);
+  const ry = yb - (cy * CPITCH + CHALF);
+  const xrem = (rx + 0.5) / CPITCH;
+  const yrem = (ry + 0.5) / CPITCH;
+  const c00 = crosses[cx][cy], c10 = crosses[cx + 1][cy];
+  const c01 = crosses[cx][cy + 1], c11 = crosses[cx + 1][cy + 1];
+  out[0] = bilinear(c00[0], c10[0], c01[0], c11[0], xrem, yrem) - 0.5;
+  out[1] = bilinear(c00[1], c10[1], c01[1], c11[1], xrem, yrem) - 0.5;
+  out[2] = bilinear(cutlevels[cx][cy], cutlevels[cx + 1][cy],
+                    cutlevels[cx][cy + 1], cutlevels[cx + 1][cy + 1],
+                    xrem, yrem);
 }
 
 function decodeImageData(imgData, opts) {
@@ -773,58 +987,34 @@ function decodeImageData(imgData, opts) {
   const H = imgData.height;
   const gray = imageDataToGray(imgData);
 
-  const threshold = detectThreshold(gray);
-  const box = findPageBox(gray, W, H, threshold);
-
-  // The page outer rectangle is WIDTH x HEIGHT cells (border on every side).
-  // From its pixel size we recover scale, then the data area sits BORDER
-  // cells in from each edge.
-  const pageW = box.right  - box.left + 1;
-  const pageH = box.bottom - box.top  + 1;
-  const sx = pageW / geom.WIDTH;
-  const sy = pageH / geom.HEIGHT;
-  const innerLeft = box.left + BORDER * sx;
-  const innerTop  = box.top  + BORDER * sy;
-
-  function sampleBit(cx, cy) {
-    const fx = innerLeft + (cx + 0.5) * sx;
-    const fy = innerTop  + (cy + 0.5) * sy;
-    const radius = Math.max(0, Math.floor(Math.min(sx, sy) * 0.25));
-    let sum = 0;
-    let count = 0;
-    for (let dy = -radius; dy <= radius; dy++) {
-      for (let dx = -radius; dx <= radius; dx++) {
-        const px = (fx + dx) | 0;
-        const py = (fy + dy) | 0;
-        if (px < 0 || py < 0 || px >= W || py >= H) continue;
-        sum += gray[py * W + px];
-        count++;
-      }
-    }
-    const avg = count > 0 ? sum / count : 255;
-    return avg < threshold ? 1 : 0;
-  }
+  const globalCut = analyzeCutlevel(gray);
+  const corners   = findCorners(gray, W, H, globalCut);
+  const vectors   = computeVectors(corners, geom);
+  const sync      = syncCrosses(gray, W, H, corners, vectors, geom, globalCut);
+  const { crosses, cutlevels } = sync;
 
   const errorStats = [0, 0, 0, 0, 0]; // 0..3 corrected; 4 = irreparable
   const out = new Uint8Array(geom.NETBITS / 8);
   let outIndex = 0;
   let payloadAccu = 1;
+  const xy   = [0, 0];
+  const xyc  = [0, 0, 0];
 
   for (let sym = 0; sym < geom.FEC_SYMS; sym++) {
     let received = 0n;
     for (let bit = 0; bit < BCH_N; bit++) {
       const seq = sym + bit * geom.FEC_SYMS;
-      const xy = seq2xy(geom, seq);
-      received = (received << 1n) | BigInt(sampleBit(xy[0], xy[1]));
+      seq2xyInto(geom, seq, xy);
+      bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
+      const sample = getPixelInterp(gray, W, H, xyc[0], xyc[1]);
+      received = (received << 1n) | (sample < xyc[2] ? 1n : 0n);
     }
     const dec = bchDecode(received);
     errorStats[dec.reparable ? Math.min(3, dec.errors) : 4]++;
-    // Emit BCH_K = 45 data bits MSB-first into the byte stream. Use BigInt
-    // shifts because 1 << 45 overflows JS 32-bit bitwise ops.
     const dataBig = BigInt(dec.data);
     for (let shift = BCH_K - 1; shift >= 0; shift--) {
-      const bit = Number((dataBig >> BigInt(shift)) & 1n);
-      payloadAccu = ((payloadAccu << 1) | bit) & 0x1ff;
+      const b = Number((dataBig >> BigInt(shift)) & 1n);
+      payloadAccu = ((payloadAccu << 1) | b) & 0x1ff;
       if (payloadAccu & 0x100) {
         out[outIndex++] = payloadAccu & 0xff;
         payloadAccu = 1;
@@ -832,7 +1022,36 @@ function decodeImageData(imgData, opts) {
     }
   }
 
-  return { geom, bytes: out, stats: { errors: errorStats } };
+  return {
+    geom, bytes: out, stats: { errors: errorStats },
+    corners, crosses, globalCut,
+  };
+}
+
+// In-place version of seq2xy that writes into a caller-supplied 2-element
+// array so the inner decode loop doesn't allocate a new tuple per bit.
+function seq2xyInto(geom, seq, out) {
+  if (seq >= geom.TOTALBITS) { out[0] = -1; out[1] = -1; return; }
+  const rep = (seq / geom.REPPIXELS) | 0;
+  let s = seq - rep * geom.REPPIXELS;
+  let y = geom.REPHEIGHT * rep;
+  let x;
+  if (s >= geom.NARROWPIXELS) {
+    y += geom.NARROWHEIGHT;
+    s -= geom.NARROWPIXELS;
+    y += (s / geom.WIDEWIDTH) | 0;
+    x  = s - ((s / geom.WIDEWIDTH) | 0) * geom.WIDEWIDTH;
+  } else {
+    x = 2 * CHALF;
+    y += (s / geom.NARROWWIDTH) | 0;
+    s = s - ((s / geom.NARROWWIDTH) | 0) * geom.NARROWWIDTH;
+    const gap = (s / geom.GAPWIDTH) | 0;
+    x += gap * CPITCH;
+    s = s - gap * geom.GAPWIDTH;
+    x += s;
+  }
+  out[0] = x;
+  out[1] = y;
 }
 
 // Read a File/Blob as Uint8Array (browser API).
@@ -865,6 +1084,92 @@ function readFileAsImageData(file) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+// ============================================================================
+// Per-file payload header: magic + sha256 + filename + file-data.
+//
+// Layout (single header per file, prepended once before the bytes are split
+// across pages by the FEC pipeline):
+//   "OPTR"   4 B   magic
+//   sha256  32 B   digest of file-data
+//   filename n B   UTF-8 bytes, terminated by a NUL (filenames cannot
+//                  contain NUL on any modern OS)
+//   file-data ... B   the file content; trailing zero-byte padding from the
+//                  FEC bit-flush is stripped at decode time and verified
+//                  against the SHA-256.
+//
+// On decode we look for the magic at offset 0. If absent, fall back to "raw"
+// mode (no header) — keeps interop with C / Java pipelines which don't write
+// a header. If the header is present but the SHA-256 of the trimmed body
+// doesn't match (e.g. the file legitimately ends in zero bytes), the
+// decoder still returns the body but flags hashOk=false so the user knows.
+// ============================================================================
+const OPTAR_HEADER_MAGIC = [0x4f, 0x50, 0x54, 0x52]; // "OPTR"
+
+async function sha256Bytes(bytes) {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return new Uint8Array(buf);
+}
+
+function hexBytes(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
+  return s;
+}
+
+async function wrapWithHeader(fileBytes, filename) {
+  const nameUtf8 = new TextEncoder().encode(filename || '');
+  for (let i = 0; i < nameUtf8.length; i++) {
+    if (nameUtf8[i] === 0) {
+      throw new Error('filename cannot contain a NUL byte');
+    }
+  }
+  const digest = await sha256Bytes(fileBytes);
+  const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + fileBytes.length);
+  let p = 0;
+  for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC[i];
+  out.set(digest, p);   p += 32;
+  out.set(nameUtf8, p); p += nameUtf8.length;
+  out[p++] = 0;         // NUL terminator for filename
+  out.set(fileBytes, p);
+  return out;
+}
+
+async function unwrapHeader(decodedBytes) {
+  // Returns { hasHeader, filename, sha256, body, hashOk, error? }.
+  // hasHeader=false ⇒ caller treats the input as raw (no OPTR wrapping).
+  const minSize = 4 + 32 + 1; // magic + sha + NUL
+  if (decodedBytes.length < minSize) return { hasHeader: false, body: decodedBytes };
+  for (let i = 0; i < 4; i++) {
+    if (decodedBytes[i] !== OPTAR_HEADER_MAGIC[i]) {
+      return { hasHeader: false, body: decodedBytes };
+    }
+  }
+  const sha = decodedBytes.subarray(4, 36);
+  // Find NUL terminator for the filename.
+  let nameEnd = 36;
+  while (nameEnd < decodedBytes.length && decodedBytes[nameEnd] !== 0) nameEnd++;
+  if (nameEnd >= decodedBytes.length) {
+    return { hasHeader: true, error: 'filename has no NUL terminator',
+             body: new Uint8Array(0) };
+  }
+  const filename = new TextDecoder('utf-8', { fatal: false })
+    .decode(decodedBytes.subarray(36, nameEnd));
+  const dataStart = nameEnd + 1;
+
+  // Trim the FEC's trailing zero-byte page padding. SHA-256 verifies this
+  // is correct; a file that legitimately ends in zero bytes will fail
+  // verification and the caller is informed via hashOk=false.
+  let dataEnd = decodedBytes.length;
+  while (dataEnd > dataStart && decodedBytes[dataEnd - 1] === 0) dataEnd--;
+  const body = decodedBytes.subarray(dataStart, dataEnd);
+
+  const computed = await sha256Bytes(body);
+  let hashOk = true;
+  for (let i = 0; i < 32; i++) if (computed[i] !== sha[i]) { hashOk = false; break; }
+
+  return { hasHeader: true, filename, sha256: hexBytes(sha), body, hashOk };
 }
 
 // ============================================================================
@@ -906,6 +1211,8 @@ window.OPTAR = {
   interleaveBits, deinterleaveBits,
   // Pipeline
   encodeBytes, decodeImageData,
+  // Header
+  wrapWithHeader, unwrapHeader, sha256Bytes, OPTAR_HEADER_MAGIC,
   // Render
   createBlankPage, renderPageToCanvas,
   // Format string
@@ -940,19 +1247,60 @@ const setY = $('set-ycrosses');
 const setScale = $('set-scale');
 const setPaper = $('set-paper');
 const setDims = $('set-dims');
+// Compute the largest XCROSSES/YCROSSES whose rendered canvas fits in the
+// current viewport at the given scale. WIDTH = 24·X − 14, HEIGHT = 24·Y + 10
+// (with the standard CPITCH=24, CHALF=3, BORDER=2, TEXT_HEIGHT=24 layout),
+// so we invert: maxX = ⌊(usableW/scale + 14) / 24⌋, similarly for Y. Reserves
+// space for the page-card chrome above the canvas (label + Download/Print
+// buttons) and outer body padding.
+function fitToViewport(scale) {
+  const winW = window.innerWidth;
+  const winH = window.innerHeight;
+  const chromeW = 48;   // body padding (16) + page-card padding (12) + slack
+  const chromeH = 110;  // page-card header + buttons + page-list margin
+  const usableW = Math.max(100, winW - chromeW);
+  const usableH = Math.max(100, winH - chromeH);
+  const maxX = Math.floor((usableW / scale + 14) / 24);
+  const maxY = Math.floor((usableH / scale - 10) / 24);
+  // Floor at 10 — anything smaller is sub-1 KB/page and not useful. Any
+  // reasonable desktop window leaves plenty of headroom above this.
+  return {
+    xcrosses: Math.max(10, Math.min(200, maxX)),
+    ycrosses: Math.max(10, Math.min(200, maxY)),
+  };
+}
+
 function refreshSettings() {
+  if (setPaper.value === 'Fit') {
+    const scale = parseInt(setScale.value, 10) || DEFAULT_SCALE;
+    const fit = fitToViewport(scale);
+    setX.value = fit.xcrosses;
+    setY.value = fit.ycrosses;
+  }
   const xcrosses = parseInt(setX.value, 10) || 65;
   const ycrosses = parseInt(setY.value, 10) || 93;
   const scale = parseInt(setScale.value, 10) || DEFAULT_SCALE;
   const geom = makeGeometry(xcrosses, ycrosses);
-  setDims.textContent = `${geom.WIDTH * scale} x ${geom.HEIGHT * scale} px, ` +
-                        `~${(geom.NETBITS / 8 / 1024).toFixed(1)} KB / page`;
+  const px = `${geom.WIDTH * scale} × ${geom.HEIGHT * scale} px`;
+  const cap = (geom.NETBITS / 8 / 1024).toFixed(1);
+  const fits = (geom.WIDTH * scale <= window.innerWidth) &&
+               (geom.HEIGHT * scale <= window.innerHeight - 110);
+  setDims.innerHTML = `${px}, ~${cap} KB / page` +
+    (fits ? ' <span style="color: var(--ok)">✓ fits viewport</span>'
+          : ' <span style="color: var(--warn)">⚠ scrolling required</span>');
 }
 [setX, setY, setScale].forEach(el => el.addEventListener('input', refreshSettings));
 setPaper.addEventListener('change', () => {
-  if (setPaper.value === 'A4') { setX.value = 65; setY.value = 93; }
-  else                         { setX.value = 67; setY.value = 87; }
+  // If the user picks A4 or Letter we set fixed values; "Fit" defers to
+  // refreshSettings, which fills in fit-to-viewport values.
+  const v = setPaper.value;
+  if (v === 'A4')          { setX.value = 65; setY.value = 93; }
+  else if (v === 'Letter') { setX.value = 67; setY.value = 87; }
   refreshSettings();
+});
+// Re-fit on window resize, but only when "Fit to screen" is the active mode.
+window.addEventListener('resize', () => {
+  if (setPaper.value === 'Fit') refreshSettings();
 });
 refreshSettings();
 
@@ -994,10 +1342,13 @@ encGo.addEventListener('click', async () => {
   encInfo.textContent = 'Encoding...';
   try {
     const settings = currentSettings();
-    const bytes = await readFileAsBytes(encSelectedFile);
-    const enc = encodeBytes(bytes, settings);
+    const fileBytes = await readFileAsBytes(encSelectedFile);
+    const wrapped = await wrapWithHeader(fileBytes, encSelectedFile.name);
+    const enc = encodeBytes(wrapped, settings);
 
-    encInfo.textContent = `Encoded ${bytes.length} bytes into ${enc.nPages} page${enc.nPages > 1 ? 's' : ''}.`;
+    encInfo.textContent =
+      `Encoded ${fileBytes.length} bytes (+ ${wrapped.length - fileBytes.length} header) ` +
+      `into ${enc.nPages} page${enc.nPages > 1 ? 's' : ''}.`;
 
     const labelBase = (encLabel.value || encSelectedFile.name).slice(0, 40);
     for (let i = 0; i < enc.pages.length; i++) {
@@ -1125,17 +1476,40 @@ decGo.addEventListener('click', async () => {
     let off = 0;
     for (const b of allBytes) { merged.set(b, off); off += b.length; }
 
-    decStatus.innerHTML =
-      `Decoded ${merged.length} byte${merged.length === 1 ? '' : 's'} ` +
-      `(includes zero-padding to fill the last page). ` +
-      `<strong>Aggregate BCH:</strong> 0-err ${aggStats[0]}, 1-err ${aggStats[1]}, ` +
-      `2-err ${aggStats[2]}, 3-err ${aggStats[3]}, irreparable ${aggStats[4]}.`;
+    // Try to peel off the OPTR header (filename + size + sha256). On failure,
+    // fall back to "raw" mode so we stay interoperable with C/Java pipelines.
+    const unwrapped = await unwrapHeader(merged);
+    let outBytes, downloadName, hashLine;
+    if (unwrapped.hasHeader && !unwrapped.error) {
+      outBytes = unwrapped.body;
+      downloadName = unwrapped.filename || 'decoded.bin';
+      hashLine = unwrapped.hashOk
+        ? `<span class="ok">✓ SHA-256 verified</span> (${unwrapped.sha256.slice(0, 16)}…)`
+        : `<span class="bad">✗ SHA-256 mismatch</span> — recovered bytes do not match the embedded hash`;
+    } else if (unwrapped.hasHeader && unwrapped.error) {
+      outBytes = merged;
+      downloadName = 'decoded.bin';
+      hashLine = `<span class="bad">✗ header parse error: ${unwrapped.error}</span>`;
+    } else {
+      outBytes = merged;
+      downloadName = 'decoded.bin';
+      hashLine = '<span class="warn">no OPTR header — raw mode (filename / hash unknown)</span>';
+    }
 
-    const blob = new Blob([merged], { type: 'application/octet-stream' });
+    decStatus.innerHTML =
+      `Decoded ${outBytes.length} byte${outBytes.length === 1 ? '' : 's'}. ` +
+      `<strong>Aggregate BCH:</strong> 0-err ${aggStats[0]}, 1-err ${aggStats[1]}, ` +
+      `2-err ${aggStats[2]}, 3-err ${aggStats[3]}, irreparable ${aggStats[4]}.<br>` +
+      hashLine +
+      (unwrapped.hasHeader && unwrapped.filename
+        ? ` &middot; filename: <code>${unwrapped.filename}</code>`
+        : '');
+
+    const blob = new Blob([outBytes], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'decoded.bin';
+    a.download = downloadName;
     a.textContent = '↓ Download decoded file';
     a.className = 'primary';
     a.style.display = 'inline-block';
