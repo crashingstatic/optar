@@ -116,6 +116,66 @@
   .help-content table { border-collapse: collapse; margin: 12px 0; }
   .help-content th, .help-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 
+  /* Streaming-mode player: full-screen overlay that cycles pages at a fixed
+     rate after a countdown so the user can capture the playback as a screen
+     recording. */
+  .stream-host {
+    position: fixed;
+    inset: 0;
+    background: black;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+  }
+  .stream-host.hidden { display: none; }
+  #stream-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100vw;
+    height: 100vh;
+  }
+  #stream-content canvas {
+    max-width: 100vw;
+    max-height: 100vh;
+    image-rendering: pixelated;
+    background: white;
+  }
+  #stream-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    pointer-events: none;
+    color: white;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
+  }
+  #stream-countdown { font: 700 200px/1 system-ui, sans-serif; }
+  #stream-info {
+    position: absolute;
+    bottom: 24px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font: 500 14px/1.4 monospace;
+    color: #ddd;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+  }
+  #stream-hint {
+    position: absolute;
+    top: 24px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font: 500 14px/1.4 system-ui, sans-serif;
+    color: #ddd;
+    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+  }
+
   /* Print: only the print-target page is shown, sized to physical dimensions. */
   @media print {
     body, .panel, .tabs, h1, .sub { background: white; padding: 0; margin: 0; border: 0; }
@@ -158,8 +218,8 @@
 <section id="tab-decode" class="panel hidden">
   <div class="row">
     <div class="field">
-      <label for="dec-files">Scanned page images (PNG)</label>
-      <input type="file" id="dec-files" multiple accept="image/png,image/bmp,image/jpeg">
+      <label for="dec-files">Scans (PNG/BMP/JPEG) or screen recording (video)</label>
+      <input type="file" id="dec-files" multiple accept="image/png,image/bmp,image/jpeg,video/*">
     </div>
     <div class="field">
       <label for="dec-format">Format string</label>
@@ -258,6 +318,15 @@
 </section>
 
 <div id="print-host"></div>
+
+<div id="stream-host" class="stream-host hidden">
+  <div id="stream-content"></div>
+  <div id="stream-overlay">
+    <div id="stream-countdown"></div>
+  </div>
+  <div id="stream-hint"></div>
+  <div id="stream-info"></div>
+</div>
 
 <script>
 'use strict';
@@ -1196,6 +1265,283 @@ function parseFormatString(s) {
 }
 
 // ============================================================================
+// Streaming mode (encode side).
+//
+// Full-screen player that cycles a sequence of rendered page canvases at a
+// fixed rate after a countdown, so the user can screen-record the playback
+// instead of printing the pages. Pages are drawn at intrinsic pixel size
+// (no smoothing) so each one captures cleanly into a recording frame.
+// ============================================================================
+function streamPages(canvases, opts) {
+  const fps       = (opts && opts.fps)       || 10;
+  const countdown = (opts && opts.countdown) || 3;
+  const onDone    = opts && opts.onDone;
+
+  const host    = document.getElementById('stream-host');
+  const content = document.getElementById('stream-content');
+  const cdEl    = document.getElementById('stream-countdown');
+  const infoEl  = document.getElementById('stream-info');
+  const hintEl  = document.getElementById('stream-hint');
+
+  content.innerHTML = '';
+  host.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  if (host.requestFullscreen) host.requestFullscreen().catch(() => {});
+
+  hintEl.textContent =
+    `Start your screen recording NOW. Press Esc to cancel.`;
+  infoEl.textContent =
+    `${canvases.length} page${canvases.length === 1 ? '' : 's'} @ ${fps}/sec ` +
+    `(${(canvases.length * 1000 / fps / 1000).toFixed(1)}s playback)`;
+
+  let cancelled = false;
+  function close() {
+    if (cancelled) return;
+    cancelled = true;
+    host.classList.add('hidden');
+    cdEl.textContent = '';
+    document.body.style.overflow = '';
+    window.removeEventListener('keydown', onKey);
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (onDone) onDone({ cancelled: cancelled && !done });
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  window.addEventListener('keydown', onKey);
+  let done = false;
+
+  // Countdown phase.
+  let t = countdown;
+  cdEl.textContent = String(t);
+  const cdTimer = setInterval(() => {
+    if (cancelled) { clearInterval(cdTimer); return; }
+    t--;
+    if (t > 0) {
+      cdEl.textContent = String(t);
+    } else {
+      clearInterval(cdTimer);
+      cdEl.textContent = '';
+      hintEl.textContent = `Streaming pages — keep recording until "DONE"`;
+      playSequence();
+    }
+  }, 1000);
+
+  function playSequence() {
+    let i = 0;
+    const intervalMs = 1000 / fps;
+    const tStart = performance.now();
+    function showPage() {
+      if (cancelled) return;
+      if (i >= canvases.length) {
+        done = true;
+        cdEl.textContent = 'DONE';
+        cdEl.style.fontSize = '120px';
+        infoEl.textContent =
+          `Recorded ${canvases.length} page${canvases.length === 1 ? '' : 's'} ` +
+          `in ${((performance.now() - tStart) / 1000).toFixed(2)}s. Stop recording.`;
+        setTimeout(() => {
+          cdEl.style.fontSize = '';
+          close();
+        }, 2000);
+        return;
+      }
+      content.innerHTML = '';
+      // Clone the canvas so we don't yank the source out of the page card.
+      const src = canvases[i];
+      const dst = document.createElement('canvas');
+      dst.width  = src.width;
+      dst.height = src.height;
+      dst.getContext('2d').drawImage(src, 0, 0);
+      content.appendChild(dst);
+      infoEl.textContent = `page ${i + 1} / ${canvases.length}`;
+      i++;
+      setTimeout(showPage, intervalMs);
+    }
+    showPage();
+  }
+}
+
+// ============================================================================
+// Streaming mode (decode side).
+//
+// Take a sequence of frame-captured ImageDatas (or a video file) and decode
+// them into the original byte stream. The same page is captured by multiple
+// recording frames (e.g. 6 frames at 60 fps for each 100 ms page); the
+// stitcher dedupes by hashing the decoded body and concatenates the unique
+// pages in order of first appearance.
+// ============================================================================
+async function stitchFrames(frames, opts) {
+  // frames: array of ImageData. opts: { xcrosses, ycrosses, onProgress(frame, total) }
+  const xcrosses = (opts && opts.xcrosses) || 65;
+  const ycrosses = (opts && opts.ycrosses) || 93;
+  const onProgress = opts && opts.onProgress;
+
+  const seen = new Set();      // page-content hash → already counted
+  const order = [];            // unique decoded results in capture order
+  const aggStats = [0, 0, 0, 0, 0];
+  let unique = 0, dupes = 0, failed = 0;
+
+  for (let f = 0; f < frames.length; f++) {
+    if (onProgress) onProgress(f, frames.length);
+    let dec;
+    try {
+      dec = decodeImageData(frames[f], { xcrosses, ycrosses });
+    } catch (e) {
+      failed++;
+      continue;
+    }
+    // Reject frames the decoder can't make sense of (mid-transition
+    // captures, frames outside the playback window, or background noise).
+    // Three signals:
+    //  (a) too many irreparable codewords;
+    //  (b) too many codewords needing *any* correction;
+    //  (c) the recovered body has near-zero entropy. Garbage frames slip
+    //      past (a) and (b) because cross sync over random pixels tends
+    //      to cluster all the cell-sampling positions onto the same
+    //      handful of pixels, which decodes as a long run of identical
+    //      values (usually all 0x00). A real Optar page — random data,
+    //      OPTR header, format bits — sees > 16 distinct byte values
+    //      within the first 64 bytes essentially always.
+    const e = dec.stats.errors;
+    const totalSyms = e[0] + e[1] + e[2] + e[3] + e[4];
+    const nonzero  = totalSyms - e[0];
+    if (e[4] > totalSyms * 0.05 || nonzero > totalSyms * 0.5) {
+      failed++;
+      continue;
+    }
+    const distinct = new Set();
+    const probeLen = Math.min(dec.bytes.length, 1024);
+    for (let i = 0; i < probeLen; i++) {
+      distinct.add(dec.bytes[i]);
+      if (distinct.size >= 32) break;
+    }
+    if (distinct.size < 12) {
+      failed++;
+      continue;
+    }
+
+    const hashBuf = await crypto.subtle.digest('SHA-256', dec.bytes);
+    const hashHex = hexBytes(new Uint8Array(hashBuf));
+    if (seen.has(hashHex)) { dupes++; continue; }
+    seen.add(hashHex);
+    order.push(dec);
+    for (let k = 0; k < 5; k++) aggStats[k] += dec.stats.errors[k];
+    unique++;
+  }
+  if (onProgress) onProgress(frames.length, frames.length);
+
+  // Concatenate unique pages in capture order.
+  let total = 0;
+  for (const d of order) total += d.bytes.length;
+  const merged = new Uint8Array(total);
+  let off = 0;
+  for (const d of order) { merged.set(d.bytes, off); off += d.bytes.length; }
+
+  return {
+    bytes: merged,
+    stats: { errors: aggStats },
+    unique, dupes, failed,
+    framesIn: frames.length,
+  };
+}
+
+// Pull frames out of a video File/Blob by stepping a <video> element through
+// it at `sampleFps` and drawImage-ing each into a canvas. Browser support:
+// Chromium handles MP4 (H.264), WebM, MOV; codec coverage varies elsewhere.
+async function extractVideoFrames(file, opts) {
+  const sampleFps = (opts && opts.sampleFps) || 30;
+  const onProgress = opts && opts.onProgress;
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement('video');
+    video.src = url;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    await new Promise((res, rej) => {
+      video.onloadedmetadata = () => res();
+      video.onerror = () => rej(new Error('cannot load video (unsupported codec?)'));
+    });
+    const W = video.videoWidth;
+    const H = video.videoHeight;
+    let duration = video.duration;
+
+    // Seek-past-end probe to recover duration when the container lacks it
+    // (typical for MediaRecorder WebM and many screen recordings).
+    if (!Number.isFinite(duration) || duration <= 0) {
+      try {
+        await new Promise((res, rej) => {
+          video.onseeked = () => res();
+          video.onerror = () => rej(new Error('probe seek failed'));
+          video.currentTime = 1e9;
+        });
+        duration = video.duration;
+        if (!Number.isFinite(duration) || duration <= 0) {
+          // Some Chromium builds expose end-of-stream via seekable ranges.
+          if (video.seekable.length > 0) {
+            duration = video.seekable.end(video.seekable.length - 1);
+          }
+        }
+      } catch (_) { /* fall through to playback-based path */ }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    if (Number.isFinite(duration) && duration > 0 && video.seekable.length > 0) {
+      // Seek-based path — fastest, lets us hit any sample rate cleanly.
+      try {
+        await new Promise((res) => { video.onseeked = () => res(); video.currentTime = 0; });
+      } catch (_) {}
+      const frames = [];
+      const total = Math.max(1, Math.floor(duration * sampleFps));
+      for (let i = 0; i < total; i++) {
+        const t = (i + 0.5) / sampleFps;
+        if (t >= duration) break;
+        await new Promise((res, rej) => {
+          video.onseeked = () => res();
+          video.onerror = () => rej(new Error('seek failed'));
+          video.currentTime = t;
+        });
+        ctx.drawImage(video, 0, 0);
+        frames.push(ctx.getImageData(0, 0, W, H));
+        if (onProgress) onProgress(i + 1, total);
+      }
+      return { frames, width: W, height: H, duration };
+    }
+
+    // Playback-based fallback for un-seekable / no-duration containers
+    // (MediaRecorder blobs without a seek index). Plays the video at native
+    // rate and snapshots every decoded frame via requestVideoFrameCallback.
+    if (!video.requestVideoFrameCallback) {
+      throw new Error('video has no duration metadata and rVFC is unavailable');
+    }
+    const frames = [];
+    let lastFrameT = 0;
+    await new Promise((resolve, reject) => {
+      function onFrame(_, metadata) {
+        ctx.drawImage(video, 0, 0);
+        frames.push(ctx.getImageData(0, 0, W, H));
+        lastFrameT = metadata.mediaTime;
+        if (onProgress) onProgress(frames.length, -1);
+        if (video.ended) { resolve(); return; }
+        video.requestVideoFrameCallback(onFrame);
+      }
+      video.addEventListener('ended', () => resolve());
+      video.addEventListener('error', () => reject(new Error('playback error')));
+      video.requestVideoFrameCallback(onFrame);
+      video.play().catch(reject);
+    });
+    return { frames, width: W, height: H, duration: lastFrameT };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// ============================================================================
 // Test API: expose pure functions for Puppeteer to drive directly.
 // ============================================================================
 window.OPTAR = {
@@ -1213,6 +1559,8 @@ window.OPTAR = {
   encodeBytes, decodeImageData,
   // Header
   wrapWithHeader, unwrapHeader, sha256Bytes, OPTAR_HEADER_MAGIC,
+  // Streaming
+  streamPages, stitchFrames, extractVideoFrames,
   // Render
   createBlankPage, renderPageToCanvas,
   // Format string
@@ -1351,6 +1699,7 @@ encGo.addEventListener('click', async () => {
       `into ${enc.nPages} page${enc.nPages > 1 ? 's' : ''}.`;
 
     const labelBase = (encLabel.value || encSelectedFile.name).slice(0, 40);
+    const allCanvases = [];
     for (let i = 0; i < enc.pages.length; i++) {
       const pageNumber = i + 1;
       const formatStr = buildFormatString(enc.geom, pageNumber, enc.nPages, labelBase);
@@ -1389,6 +1738,34 @@ encGo.addEventListener('click', async () => {
       card.appendChild(meta);
       card.appendChild(canvas);
       encPages.appendChild(card);
+      allCanvases.push(canvas);
+    }
+
+    // After rendering all pages, offer a single "Stream all pages" action.
+    // The streaming player cycles through them full-screen at 10 pages/sec
+    // after a 3-second countdown so the user can capture the playback as a
+    // screen recording (alternative to printing).
+    if (allCanvases.length > 0) {
+      const streamBox = document.createElement('div');
+      streamBox.style.cssText = 'margin-top: 16px; padding: 12px; background: #fff8e6; ' +
+                                'border: 1px solid #e6c97a; border-radius: 6px;';
+      const desc = document.createElement('div');
+      desc.style.cssText = 'margin-bottom: 8px; font-size: 0.92em; color: #555;';
+      desc.innerHTML =
+        '<strong>Stream pages</strong> — full-screen playback at 10 pages/sec, ' +
+        'recoverable from a screen recording. After clicking, you have a 3-second ' +
+        'countdown to start your screen recorder.';
+      streamBox.appendChild(desc);
+
+      const streamBtn = document.createElement('button');
+      streamBtn.className = 'primary';
+      streamBtn.textContent = `▶ Stream ${allCanvases.length} page${allCanvases.length === 1 ? '' : 's'}`;
+      streamBtn.addEventListener('click', () => {
+        streamPages(allCanvases, { fps: 10, countdown: 3 });
+      });
+      streamBox.appendChild(streamBtn);
+
+      encPages.insertBefore(streamBox, encPages.firstChild);
     }
   } catch (err) {
     encInfo.innerHTML = `<span class="bad">Encode failed: ${err.message}</span>`;
@@ -1451,22 +1828,62 @@ decGo.addEventListener('click', async () => {
 
     for (let i = 0; i < decSelectedFiles.length; i++) {
       const file = decSelectedFiles[i];
-      decStatus.textContent = `Decoding page ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
-      const imgData = await readFileAsImageData(file);
-      const result = decodeImageData(imgData, fmt);
-      allBytes.push(result.bytes);
-      for (let k = 0; k < 5; k++) aggStats[k] += result.stats.errors[k];
+      const isVideo = (file.type && file.type.startsWith('video/')) ||
+                      /\.(mp4|webm|mov|mkv|m4v)$/i.test(file.name);
 
-      const stat = document.createElement('div');
-      const total = result.stats.errors.reduce((a, b) => a + b, 0);
-      stat.innerHTML = `<strong>${file.name}</strong>: ` +
-        `<span class="stat ok">0-err ${result.stats.errors[0]}</span>` +
-        `<span class="stat">1-err ${result.stats.errors[1]}</span>` +
-        `<span class="stat">2-err ${result.stats.errors[2]}</span>` +
-        `<span class="stat warn">3-err ${result.stats.errors[3]}</span>` +
-        `<span class="stat bad">irreparable ${result.stats.errors[4]}</span>` +
-        ` &middot; ${total} symbols`;
-      decStats.appendChild(stat);
+      if (isVideo) {
+        // Video file → frame extraction → stitch.
+        decStatus.textContent =
+          `Reading video ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
+        const { frames, duration } = await extractVideoFrames(file, {
+          sampleFps: 30,
+          onProgress: (n, t) => {
+            decStatus.textContent =
+              `${file.name}: extracting frames ${n} / ${t}...`;
+          },
+        });
+        decStatus.textContent =
+          `${file.name}: decoding ${frames.length} frames (${duration.toFixed(1)}s)...`;
+        const stitched = await stitchFrames(frames, {
+          xcrosses: fmt.xcrosses, ycrosses: fmt.ycrosses,
+          onProgress: (n, t) => {
+            decStatus.textContent =
+              `${file.name}: decoding frame ${n} / ${t}...`;
+          },
+        });
+        allBytes.push(stitched.bytes);
+        for (let k = 0; k < 5; k++) aggStats[k] += stitched.stats.errors[k];
+
+        const stat = document.createElement('div');
+        stat.innerHTML = `<strong>${file.name}</strong> (video, ${duration.toFixed(1)}s): ` +
+          `${stitched.unique} unique page${stitched.unique === 1 ? '' : 's'} ` +
+          `from ${stitched.framesIn} frames ` +
+          `(${stitched.dupes} dup${stitched.dupes === 1 ? '' : 's'}, ` +
+          `${stitched.failed} failed) &middot; ` +
+          `<span class="stat ok">0-err ${stitched.stats.errors[0]}</span>` +
+          `<span class="stat warn">3-err ${stitched.stats.errors[3]}</span>` +
+          `<span class="stat bad">irreparable ${stitched.stats.errors[4]}</span>`;
+        decStats.appendChild(stat);
+      } else {
+        // Image file → existing single-page path.
+        decStatus.textContent =
+          `Decoding page ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
+        const imgData = await readFileAsImageData(file);
+        const result = decodeImageData(imgData, fmt);
+        allBytes.push(result.bytes);
+        for (let k = 0; k < 5; k++) aggStats[k] += result.stats.errors[k];
+
+        const stat = document.createElement('div');
+        const total = result.stats.errors.reduce((a, b) => a + b, 0);
+        stat.innerHTML = `<strong>${file.name}</strong>: ` +
+          `<span class="stat ok">0-err ${result.stats.errors[0]}</span>` +
+          `<span class="stat">1-err ${result.stats.errors[1]}</span>` +
+          `<span class="stat">2-err ${result.stats.errors[2]}</span>` +
+          `<span class="stat warn">3-err ${result.stats.errors[3]}</span>` +
+          `<span class="stat bad">irreparable ${result.stats.errors[4]}</span>` +
+          ` &middot; ${total} symbols`;
+        decStats.appendChild(stat);
+      }
     }
 
     // Concatenate all pages.

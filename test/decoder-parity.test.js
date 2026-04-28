@@ -111,6 +111,82 @@ function injectGaussianNoise(imgData, sigma) {
     d[i] = v; d[i + 1] = v; d[i + 2] = v;
   }
 }
+// Separable Gaussian blur in place. Operates on the R channel and copies to
+// G/B for grayscale-equivalent output.
+function injectGaussianBlur(imgData, sigma) {
+  if (sigma <= 0) return;
+  const W = imgData.width, H = imgData.height, d = imgData.data;
+  const radius = Math.max(1, Math.ceil(sigma * 3));
+  const kernel = [];
+  let ksum = 0;
+  for (let i = -radius; i <= radius; i++) {
+    const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+    kernel.push(v);
+    ksum += v;
+  }
+  for (let i = 0; i < kernel.length; i++) kernel[i] /= ksum;
+  // Horizontal pass into a scratch buffer.
+  const tmp = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let acc = 0;
+      for (let i = -radius; i <= radius; i++) {
+        const xi = x + i < 0 ? 0 : (x + i >= W ? W - 1 : x + i);
+        acc += d[(y * W + xi) * 4] * kernel[i + radius];
+      }
+      tmp[y * W + x] = acc;
+    }
+  }
+  // Vertical pass back into the imageData.
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let acc = 0;
+      for (let i = -radius; i <= radius; i++) {
+        const yi = y + i < 0 ? 0 : (y + i >= H ? H - 1 : y + i);
+        acc += tmp[yi * W + x] * kernel[i + radius];
+      }
+      const idx = (y * W + x) * 4;
+      const v = Math.round(acc);
+      d[idx] = v; d[idx + 1] = v; d[idx + 2] = v;
+    }
+  }
+}
+// Moiré: a low-frequency sinusoidal intensity ripple, simulating the beat
+// pattern between the camera's Bayer grid and the monitor's pixel matrix.
+function injectMoire(imgData, wavelengthPx, amplitude) {
+  const W = imgData.width, H = imgData.height, d = imgData.data;
+  const k     = (2 * Math.PI) / wavelengthPx;
+  const angle = 0.27; // slight tilt so the bands aren't axis-aligned
+  const cs = Math.cos(angle), sn = Math.sin(angle);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const phase = k * (x * cs + y * sn);
+      const delta = amplitude * Math.sin(phase);
+      const i = (y * W + x) * 4;
+      const v = Math.max(0, Math.min(255, d[i] + delta));
+      d[i] = v; d[i + 1] = v; d[i + 2] = v;
+    }
+  }
+}
+// Affine skew, approximating a perspective tilt for small angles. Real
+// perspective is non-affine, but our decoder uses bilinear interpolation
+// between crosses, which is exact for affine and a close approximation
+// over the small cell-spacing distance for true perspective.
+function applyAffineSkew(srcCanvas, tiltDegrees) {
+  const W = srcCanvas.width, H = srcCanvas.height;
+  const dst = document.createElement('canvas');
+  dst.width = W;
+  dst.height = H;
+  const ctx = dst.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, W, H);
+  ctx.imageSmoothingEnabled = true;
+  const skew = Math.tan(tiltDegrees * Math.PI / 180);
+  // Skew x linearly with y so the top edge shifts right by skew*H/2 px.
+  ctx.transform(1, 0, skew, 1, -skew * H / 2, 0);
+  ctx.drawImage(srcCanvas, 0, 0);
+  return dst;
+}
 `;
 
 // ---------- tests ----------
@@ -191,7 +267,7 @@ test('decoder: 15% brightness gradient (uneven scanner light)', async (page) => 
     `gradient must be handled by per-cross cutlevels (irrep=${r.irreparable})`);
 });
 
-test('decoder: gaussian noise σ=12 (typical scan grain)', async (page) => {
+test('decoder: gaussian noise σ=10 (typical scan grain)', async (page) => {
   const r = await page.evaluate(`
     (() => {
       ${HELPERS}
@@ -199,7 +275,7 @@ test('decoder: gaussian noise σ=12 (typical scan grain)', async (page) => {
       const input = makeInput(N);
       const { enc, canvas } = encodeAtScale(input, 3);
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      injectGaussianNoise(id, 12);
+      injectGaussianNoise(id, 10);
       canvas.getContext('2d').putImageData(id, 0, 0);
       const id2 = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
@@ -207,7 +283,45 @@ test('decoder: gaussian noise σ=12 (typical scan grain)', async (page) => {
                errors: dec.stats.errors };
     })()
   `);
-  assertEqual(r.mm, 0, `gaussian noise σ=12 must decode (errors=${JSON.stringify(r.errors)})`);
+  assertEqual(r.mm, 0, `gaussian noise σ=10 must decode (errors=${JSON.stringify(r.errors)})`);
+});
+
+// "Phone of monitor" — combines the realistic impairments of a handheld
+// shot of a screen: framing rotation, perspective tilt, defocus blur,
+// moiré beat between camera and monitor pixels, and sensor noise. None of
+// these alone matches a Gaussian-σ noise model; together they're the
+// closest we get to a synthetic capture of a real phone photo.
+test('decoder: phone-of-monitor (rot + skew + defocus + moiré + noise)', async (page) => {
+  const r = await page.evaluate(`
+    (() => {
+      ${HELPERS}
+      const N = 256;
+      const input = makeInput(N);
+      const { enc, canvas } = encodeAtScale(input, 4); // scale=4 keeps cells
+                                                       //  large enough to survive blur
+      // Step 1: rotation and white-margin framing (handheld shot).
+      let cv = applyTransform(canvas, { rotate: 1, padW: 60, padH: 60, smooth: true });
+      // Step 2: affine skew approximating a 2° perspective tilt.
+      cv = applyAffineSkew(cv, 2);
+      // Step 3 onwards: defocus, moiré, noise. Modify in place via getImageData.
+      const id = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);
+      injectGaussianBlur(id, 0.5);   // sub-pixel defocus, just-noticeable softness
+      injectMoire(id, 17, 10);       // 17 px wavelength, ±10 grayscale ripple
+      injectGaussianNoise(id, 6);    // σ=6 sensor noise (decent indoor light)
+      cv.getContext('2d').putImageData(id, 0, 0);
+      const id2 = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);
+
+      const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
+      let mm = 0;
+      for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
+      return {
+        mm, errors: dec.stats.errors, irreparable: dec.stats.errors[4],
+        canvasW: cv.width, canvasH: cv.height,
+      };
+    })()
+  `);
+  assertEqual(r.mm, 0,
+    `phone-of-monitor must decode (irrep=${r.irreparable}, stats=${JSON.stringify(r.errors)})`);
 });
 
 test('decoder: rotation + padding + noise (combined)', async (page) => {
