@@ -36,10 +36,7 @@
     cursor: pointer;
     color: var(--muted);
   }
-  .tabs button.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -85,7 +82,7 @@
     border-radius: 12px;
     font-size: 0.85em;
   }
-  .ok  { color: var(--ok); }
+  .ok { color: var(--ok); }
   .warn { color: var(--warn); }
   .bad { color: var(--bad); }
   pre {
@@ -115,65 +112,12 @@
   .help-content { line-height: 1.6; }
   .help-content table { border-collapse: collapse; margin: 12px 0; }
   .help-content th, .help-content td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
-
-  /* Streaming-mode player: full-screen overlay that cycles pages at a fixed
-     rate after a countdown so the user can capture the playback as a screen
-     recording. */
-  .stream-host {
-    position: fixed;
-    inset: 0;
-    background: black;
-    z-index: 9999;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-  }
-  .stream-host.hidden { display: none; }
-  #stream-content {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100vw;
-    height: 100vh;
-  }
-  #stream-content canvas {
-    max-width: 100vw;
-    max-height: 100vh;
-    image-rendering: pixelated;
-    background: white;
-  }
-  #stream-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    pointer-events: none;
-    color: white;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.85);
-  }
-  #stream-countdown { font: 700 200px/1 system-ui, sans-serif; }
-  #stream-info {
-    position: absolute;
-    bottom: 24px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font: 500 14px/1.4 monospace;
-    color: #ddd;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
-  }
-  #stream-hint {
-    position: absolute;
-    top: 24px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    font: 500 14px/1.4 system-ui, sans-serif;
-    color: #ddd;
-    text-shadow: 0 1px 6px rgba(0, 0, 0, 0.85);
+  .video-card {
+    margin-top: 16px;
+    padding: 12px;
+    background: #fff8e6;
+    border: 1px solid #e6c97a;
+    border-radius: 6px;
   }
 
   /* Print: only the print-target page is shown, sized to physical dimensions. */
@@ -262,7 +206,8 @@
   <div class="sub">
     Defaults match the original Optar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
     Decoder uses the format string to read XCROSSES/YCROSSES; other parameters are fixed.
-    <strong>Fit to screen</strong> auto-sizes each page to fit the current window so a screenshot captures the whole page without scrolling — handy when you can't print.
+    <strong>Fit to screen</strong> auto-sizes each page to fit the current window so a screenshot
+    captures the whole page without scrolling — handy when you can't print.
   </div>
 </section>
 
@@ -276,36 +221,22 @@
     Error correction (BCH(63,45,t=3) code) makes it resilient to paper
     folding, dust, and minor damage.
   </p>
-
-  <h3>Encoding (File &rarr; Paper)</h3>
+  <h3>Three ways to capture pages</h3>
   <ol>
-    <li>Open <code>optar.html</code> in your browser. No internet connection required.</li>
-    <li>Select the <strong>Encode</strong> tab.</li>
-    <li>Click <strong>Choose File</strong> and select any file you want to archive.</li>
-    <li>Optionally adjust <strong>Settings</strong> (paper size, grid density). Defaults work for most 600 DPI laser printers.</li>
-    <li>Click <strong>Encode</strong>. The application generates one or more page images.</li>
-    <li>For each page, click <strong>Print</strong> or <strong>Download PNG</strong>. Use a laser printer at 600 DPI or higher; inkjet bleeds reduce reliability.</li>
-    <li>Note the format string (e.g. <code>0-65-93-24-3-10-2-24</code>) printed at the bottom of every page. You will need it for decoding.</li>
+    <li><strong>Print</strong> on a 600+ DPI laser printer (best fidelity, archival).</li>
+    <li><strong>Screenshot</strong> the on-screen page (use the <em>Fit to screen</em> page
+      size; capture losslessly at 100% zoom).</li>
+    <li><strong>Record a video</strong> of the pages cycling on screen — click
+      <strong>Download MP4</strong> after encoding to get a playable file. Open it
+      with any video player; to recover, drop it back into the Decode tab.</li>
   </ol>
-  <p><strong>Important:</strong> Files are zero-padded to fill the last page. If your file format is sensitive to trailing zeros, wrap it in a tar or zip archive first.</p>
-
-  <h3>Decoding (Paper &rarr; File)</h3>
-  <ol>
-    <li>Scan your pages at 600 DPI grayscale. Format: <strong>PNG</strong>, color mode <strong>grayscale</strong>, gamma <strong>off</strong>.</li>
-    <li>Name files so they sort in page order, e.g. <code>scan_0001.png</code>, <code>scan_0002.png</code>.</li>
-    <li>Open the <strong>Decode</strong> tab.</li>
-    <li>Click <strong>Choose Files</strong> and select all your scan images.</li>
-    <li>Type the format string from the bottom of any page (e.g. <code>0-65-93-24-3-10-2-24</code>).</li>
-    <li>Click <strong>Decode</strong>. Per-page BCH error statistics are displayed:
-      <ul>
-        <li><strong>0 errors:</strong> perfect readout (most codewords should land here)</li>
-        <li><strong>1&ndash;3 errors:</strong> corrected automatically</li>
-        <li><strong>Uncorrectable:</strong> data damage detected; those 12-bit symbols are unreliable</li>
-      </ul>
-    </li>
-    <li>Click <strong>Download decoded file</strong>.</li>
-  </ol>
-
+  <h3>Decoding</h3>
+  <p>
+    Drop scanned PNGs or your recorded video into the Decode tab. Per-page BCH
+    error stats are shown (0-err = perfect; 1-3 = corrected; irreparable =
+    damage). The OPTR header carries the original filename and a SHA-256, so
+    the decoder verifies recovery and downloads with the right name.
+  </p>
   <h3>Troubleshooting</h3>
   <table>
     <tr><th>Problem</th><th>Solution</th></tr>
@@ -319,1260 +250,29 @@
 
 <div id="print-host"></div>
 
-<div id="stream-host" class="stream-host hidden">
-  <div id="stream-content"></div>
-  <div id="stream-overlay">
-    <div id="stream-countdown"></div>
-  </div>
-  <div id="stream-hint"></div>
-  <div id="stream-info"></div>
-</div>
-
+<script src="optar-codec.js"></script>
+<script src="optar-render.js"></script>
 <script>
 'use strict';
+// All FEC/codec logic lives in optar-codec.js (pure, browser+Node).
+// All DOM/canvas helpers live in optar-render.js (browser-only).
+// This script wires the UI to those modules — no algorithm code here.
+
+const {
+  BORDER, CHALF, CPITCH, TEXT_HEIGHT, DEFAULT_SCALE,
+  makeGeometry, encodeBytes, decodeImageData,
+  wrapWithHeader, unwrapHeader,
+  buildFormatString, parseFormatString,
+  stitchFrames,
+} = window.OPTAR;
+const {
+  renderPageToCanvas, readFileAsBytes, readFileAsImageData,
+  extractVideoFrames, recordPagesToVideo,
+} = window.OPTAR_RENDER;
 
-// ============================================================================
-// Constants matching Twibright Optar geometry (logical units = data cells).
-// FEC is BCH(63, 45, t=3): 71.4% rate, corrects 3 bit errors per 63-bit
-// codeword. Block layout matches the original Optar; only the codec changed.
-// ============================================================================
-const BORDER         = 2;
-const CHALF          = 3;
-const CPITCH         = 24;
-const TEXT_HEIGHT    = 24;
-const FEC_LARGEBITS  = 63;   // BCH codeword length
-const FEC_SMALLBITS  = 45;   // BCH data length
-const FEC_ORDER      = 10;   // 1=Golay (legacy), 10=BCH(63,45,t=3)
-
-// Default scaling (pixels per logical cell) for the rendered canvas.
-const DEFAULT_SCALE  = 3;
-
-// ============================================================================
-// Geometry: derive page-level constants from XCROSSES/YCROSSES.
-// ============================================================================
-function makeGeometry(xcrosses, ycrosses) {
-  const DATA_WIDTH    = CPITCH * (xcrosses - 1) + 2 * CHALF;
-  const DATA_HEIGHT   = CPITCH * (ycrosses - 1) + 2 * CHALF;
-  const WIDTH         = 2 * BORDER + DATA_WIDTH;
-  const HEIGHT        = 2 * BORDER + DATA_HEIGHT + TEXT_HEIGHT;
-  const NARROWHEIGHT  = 2 * CHALF;
-  const GAPWIDTH      = CPITCH - 2 * CHALF;
-  const NARROWWIDTH   = GAPWIDTH * (xcrosses - 1);
-  const NARROWPIXELS  = NARROWHEIGHT * NARROWWIDTH;
-  const WIDEHEIGHT    = GAPWIDTH;
-  const WIDEWIDTH     = WIDTH - 2 * BORDER;
-  const WIDEPIXELS    = WIDEHEIGHT * WIDEWIDTH;
-  const REPHEIGHT     = NARROWHEIGHT + WIDEHEIGHT;
-  const REPPIXELS     = WIDEPIXELS + NARROWPIXELS;
-  const TOTALBITS     = REPPIXELS * (ycrosses - 1) + NARROWPIXELS;
-  const FEC_SYMS      = Math.floor(TOTALBITS / FEC_LARGEBITS);
-  const NETBITS       = FEC_SYMS * FEC_SMALLBITS;
-  return {
-    xcrosses, ycrosses,
-    DATA_WIDTH, DATA_HEIGHT, WIDTH, HEIGHT,
-    NARROWHEIGHT, GAPWIDTH, NARROWWIDTH, NARROWPIXELS,
-    WIDEHEIGHT, WIDEWIDTH, WIDEPIXELS,
-    REPHEIGHT, REPPIXELS, TOTALBITS,
-    FEC_SYMS, NETBITS
-  };
-}
-
-// Maps a sequential payload-bit number to (x,y) inside the data area
-// (relative to the upper-left of the upper-left cross; caller adds BORDER).
-// Matches common.c::seq2xy.
-function seq2xy(geom, seq) {
-  if (seq >= geom.TOTALBITS) return [-1, -1];
-  const rep = Math.floor(seq / geom.REPPIXELS);
-  let s = seq - rep * geom.REPPIXELS;
-  let y = geom.REPHEIGHT * rep;
-  let x;
-  if (s >= geom.NARROWPIXELS) {
-    y += geom.NARROWHEIGHT;
-    s -= geom.NARROWPIXELS;
-    y += Math.floor(s / geom.WIDEWIDTH);
-    x  = s - Math.floor(s / geom.WIDEWIDTH) * geom.WIDEWIDTH;
-  } else {
-    x = 2 * CHALF;
-    y += Math.floor(s / geom.NARROWWIDTH);
-    s = s - Math.floor(s / geom.NARROWWIDTH) * geom.NARROWWIDTH;
-    const gap = Math.floor(s / geom.GAPWIDTH);
-    x += gap * CPITCH;
-    s = s - gap * geom.GAPWIDTH;
-    x += s;
-  }
-  return [x, y];
-}
-
-// ============================================================================
-// BCH(63, 45, t=3) codec.
-//
-// Net rate 45/63 = 71.43% (≈+43% over the original Optar's Golay 50%) at
-// the same 3-bit per-codeword correction strength. Built over GF(2^6) with
-// primitive polynomial p(x) = x^6 + x + 1. Generator polynomial
-// g(x) = m_1(x)·m_3(x)·m_5(x), degree 18. Decoder uses Peterson–Gorenstein–
-// Zierler (direct 3×3 / 2×2 / 1×1 GF(2^6) solves) plus Chien search.
-// ============================================================================
-const BCH_M         = 6;
-const BCH_N         = 63;          // 2^M - 1
-const BCH_K         = 45;
-const BCH_T         = 3;
-const BCH_PARITY    = BCH_N - BCH_K; // 18
-const BCH_PRIM_POLY = 0x43;        // x^6 + x + 1
-
-// GF(2^6) log/exp tables.
-const BCH_GF_EXP = new Uint8Array(BCH_N + 1);
-const BCH_GF_LOG = new Int8Array(BCH_N + 1);
-(function initBCHTables() {
-  let x = 1;
-  for (let i = 0; i < BCH_N; i++) {
-    BCH_GF_EXP[i] = x;
-    BCH_GF_LOG[x] = i;
-    x <<= 1;
-    if (x & (1 << BCH_M)) x ^= BCH_PRIM_POLY;
-  }
-  BCH_GF_EXP[BCH_N] = BCH_GF_EXP[0]; // alpha^N = 1
-  BCH_GF_LOG[0] = -1;
-})();
-
-function bchGfMul(a, b) {
-  if (a === 0 || b === 0) return 0;
-  return BCH_GF_EXP[(BCH_GF_LOG[a] + BCH_GF_LOG[b]) % BCH_N];
-}
-function bchGfDiv(a, b) {
-  if (a === 0) return 0;
-  if (b === 0) throw new Error('BCH GF division by zero');
-  return BCH_GF_EXP[((BCH_GF_LOG[a] - BCH_GF_LOG[b]) % BCH_N + BCH_N) % BCH_N];
-}
-
-// Build minimal polynomial of α^k over GF(2). Result is a bit-packed integer
-// (bit i = coefficient of x^i). Coefficients of any minimal polynomial of an
-// element of GF(2^m) lie in GF(2), so they fit in plain bits.
-function bchMinimalPoly(k) {
-  const seen = new Set();
-  let v = k % BCH_N;
-  while (!seen.has(v)) { seen.add(v); v = (v * 2) % BCH_N; }
-  let poly = [1];
-  for (const c of seen) {
-    const ac = BCH_GF_EXP[c];
-    const next = new Array(poly.length + 1).fill(0);
-    for (let i = 0; i < poly.length; i++) {
-      next[i + 1] ^= poly[i];                 // multiply by x
-      next[i]     ^= bchGfMul(poly[i], ac);   // multiply by α^c
-    }
-    poly = next;
-  }
-  let bits = 0;
-  for (let i = 0; i < poly.length; i++) {
-    if (poly[i] === 1) bits |= 1 << i;
-    else if (poly[i] !== 0) throw new Error('BCH minimal poly should be over GF(2)');
-  }
-  return bits;
-}
-
-function bchPolyMulGF2(a, b) {
-  let r = 0;
-  while (b !== 0) { if (b & 1) r ^= a; a <<= 1; b >>>= 1; }
-  return r;
-}
-
-const BCH_GEN = bchPolyMulGF2(
-  bchPolyMulGF2(bchMinimalPoly(1), bchMinimalPoly(3)),
-  bchMinimalPoly(5)
-);
-const BCH_GEN_BIG = BigInt(BCH_GEN);  // generator polynomial as 19-bit BigInt
-
-// Encode 45-bit data → 63-bit BCH codeword (BigInt).
-// codeword(x) = data(x)·x^18 + parity(x), where parity = data·x^18 mod g(x).
-function bchEncode(data) {
-  const d = typeof data === 'bigint' ? data : BigInt(data);
-  let r = d << 18n;
-  for (let i = 62; i >= 18; i--) {
-    if ((r >> BigInt(i)) & 1n) r ^= BCH_GEN_BIG << BigInt(i - 18);
-  }
-  return (d << 18n) | r;
-}
-
-// Compute syndromes S_1..S_6 of a received 63-bit word using Horner's rule.
-// Each S_i = received(α^i); for binary codewords we just XOR 1 onto the
-// running total when the corresponding bit is set.
-function bchSyndromes(received) {
-  const r = typeof received === 'bigint' ? received : BigInt(received);
-  const a1 = BCH_GF_EXP[1], a2 = BCH_GF_EXP[2], a3 = BCH_GF_EXP[3];
-  const a4 = BCH_GF_EXP[4], a5 = BCH_GF_EXP[5], a6 = BCH_GF_EXP[6];
-  let s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0;
-  for (let j = BCH_N - 1; j >= 0; j--) {
-    const cj = Number((r >> BigInt(j)) & 1n);
-    s1 = bchGfMul(s1, a1) ^ cj;
-    s2 = bchGfMul(s2, a2) ^ cj;
-    s3 = bchGfMul(s3, a3) ^ cj;
-    s4 = bchGfMul(s4, a4) ^ cj;
-    s5 = bchGfMul(s5, a5) ^ cj;
-    s6 = bchGfMul(s6, a6) ^ cj;
-  }
-  return [0, s1, s2, s3, s4, s5, s6];
-}
-
-// PGZ direct decoder: try to fit Λ(x) of degree 3, then 2, then 1. Returns
-// the locator polynomial as a coefficient array [1, λ_1, λ_2, ...] or null
-// if no degree fits (i.e. the received word is more than 3 bits from any
-// codeword).
-function bchPGZ(S) {
-  const M = bchGfMul, D = bchGfDiv;
-  function det3(a) {
-    return M(a[0][0], M(a[1][1], a[2][2]) ^ M(a[1][2], a[2][1]))
-         ^ M(a[0][1], M(a[1][0], a[2][2]) ^ M(a[1][2], a[2][0]))
-         ^ M(a[0][2], M(a[1][0], a[2][1]) ^ M(a[1][1], a[2][0]));
-  }
-  // t = 3
-  const M3 = [[S[1], S[2], S[3]], [S[2], S[3], S[4]], [S[3], S[4], S[5]]];
-  const detM3 = det3(M3);
-  if (detM3 !== 0) {
-    const RHS = [S[4], S[5], S[6]];
-    const m30 = [[RHS[0], M3[0][1], M3[0][2]], [RHS[1], M3[1][1], M3[1][2]], [RHS[2], M3[2][1], M3[2][2]]];
-    const m31 = [[M3[0][0], RHS[0], M3[0][2]], [M3[1][0], RHS[1], M3[1][2]], [M3[2][0], RHS[2], M3[2][2]]];
-    const m32 = [[M3[0][0], M3[0][1], RHS[0]], [M3[1][0], M3[1][1], RHS[1]], [M3[2][0], M3[2][1], RHS[2]]];
-    return [1, D(det3(m32), detM3), D(det3(m31), detM3), D(det3(m30), detM3)];
-  }
-  // t = 2
-  const detM2 = M(S[1], S[3]) ^ M(S[2], S[2]);
-  if (detM2 !== 0) {
-    const lambda_1 = D(M(S[1], S[4]) ^ M(S[2], S[3]), detM2);
-    const lambda_2 = D(M(S[2], S[4]) ^ M(S[3], S[3]), detM2);
-    return [1, lambda_1, lambda_2];
-  }
-  // t = 1
-  if (S[1] !== 0) return [1, D(S[2], S[1])];
-  return null;
-}
-
-// Chien search: enumerate roots of Λ(x). A root α^(-j) means bit j is in
-// error; we test by evaluating Λ(α^(N-j)).
-function bchChienSearch(lambda) {
-  const errors = [];
-  for (let j = 0; j < BCH_N; j++) {
-    let value = 0;
-    const negJ = (BCH_N - j) % BCH_N;
-    for (let k = 0; k < lambda.length; k++) {
-      if (lambda[k] !== 0) {
-        value ^= bchGfMul(lambda[k], BCH_GF_EXP[(k * negJ) % BCH_N]);
-      }
-    }
-    if (value === 0) errors.push(j);
-  }
-  return errors;
-}
-
-function bchDecode(received) {
-  const r = typeof received === 'bigint' ? received : BigInt(received);
-  const S = bchSyndromes(r);
-  if (S[1] === 0 && S[2] === 0 && S[3] === 0 && S[4] === 0 && S[5] === 0 && S[6] === 0) {
-    return { data: Number(r >> 18n), errors: 0, reparable: true };
-  }
-  const lambda = bchPGZ(S);
-  if (!lambda) {
-    return { data: Number(r >> 18n), errors: 4, reparable: false };
-  }
-  const errs = bchChienSearch(lambda);
-  if (errs.length !== lambda.length - 1) {
-    return { data: Number(r >> 18n), errors: 4, reparable: false };
-  }
-  let corrected = r;
-  for (const j of errs) corrected ^= 1n << BigInt(j);
-  return { data: Number(corrected >> 18n), errors: errs.length, reparable: true };
-}
-
-// ============================================================================
-// Bit interleaver: spread the N bits of a BCH codeword across N strips.
-//   For codeword #s and bit #b (MSB first), seq = s + b * FEC_SYMS.
-// Standalone helpers used by tests.
-// ============================================================================
-function interleaveBits(codewords, fecSyms) {
-  // codewords: array of 63-bit BigInts, length ≤ fecSyms.
-  // returns Uint8Array of length fecSyms*63, bit b of codeword s at index s + b*fecSyms.
-  const out = new Uint8Array(fecSyms * FEC_LARGEBITS);
-  for (let s = 0; s < codewords.length; s++) {
-    const c = typeof codewords[s] === 'bigint' ? codewords[s] : BigInt(codewords[s]);
-    for (let shift = FEC_LARGEBITS - 1; shift >= 0; shift--) {
-      const idx = s + (FEC_LARGEBITS - 1 - shift) * fecSyms;
-      out[idx] = Number((c >> BigInt(shift)) & 1n);
-    }
-  }
-  return out;
-}
-
-function deinterleaveBits(bits, fecSyms) {
-  // Inverse of interleaveBits. Returns Array of 63-bit BigInts, length fecSyms.
-  const out = new Array(fecSyms);
-  for (let s = 0; s < fecSyms; s++) {
-    let c = 0n;
-    for (let b = 0; b < FEC_LARGEBITS; b++) {
-      const shift = FEC_LARGEBITS - 1 - b;
-      c |= BigInt(bits[s + b * fecSyms]) << BigInt(shift);
-    }
-    out[s] = c;
-  }
-  return out;
-}
-
-// ============================================================================
-// Page rendering: build a Uint8Array of 1 byte per cell (0=black, 0xff=white)
-// containing border + crosses + (later) data bits. The text strip is left
-// black; the canvas-stage paints the format-string label over it in white.
-// ============================================================================
-function createBlankPage(geom) {
-  const cells = new Uint8Array(geom.WIDTH * geom.HEIGHT);
-  cells.fill(0xff);
-
-  // Top border rows.
-  cells.fill(0x00, 0, BORDER * geom.WIDTH);
-  // Side borders along the data area.
-  for (let y = BORDER; y < BORDER + geom.DATA_HEIGHT; y++) {
-    const row = y * geom.WIDTH;
-    cells.fill(0x00, row, row + BORDER);
-    cells.fill(0x00, row + geom.WIDTH - BORDER, row + geom.WIDTH);
-  }
-  // Text strip (black, label is rendered on top later via canvas).
-  const textStart = (BORDER + geom.DATA_HEIGHT) * geom.WIDTH;
-  cells.fill(0x00, textStart, textStart + TEXT_HEIGHT * geom.WIDTH);
-  // Bottom border.
-  const bottom = (BORDER + geom.DATA_HEIGHT + TEXT_HEIGHT) * geom.WIDTH;
-  cells.fill(0x00, bottom, bottom + BORDER * geom.WIDTH);
-
-  // Sync crosses.
-  const maxY = geom.HEIGHT - TEXT_HEIGHT - BORDER - 2 * CHALF;
-  const maxX = geom.WIDTH  - BORDER - 2 * CHALF;
-  for (let y = BORDER; y <= maxY; y += CPITCH) {
-    for (let x = BORDER; x <= maxX; x += CPITCH) {
-      drawCross(cells, geom.WIDTH, x, y);
-    }
-  }
-  return cells;
-}
-
-function drawCross(cells, stride, x, y) {
-  // 2x2 checkerboard: BW / WB, each quadrant CHALF x CHALF.
-  for (let r = 0; r < CHALF; r++) {
-    const row = (y + r) * stride + x;
-    cells.fill(0x00, row, row + CHALF);
-    cells.fill(0xff, row + CHALF, row + 2 * CHALF);
-    const row2 = row + CHALF * stride;
-    cells.fill(0xff, row2, row2 + CHALF);
-    cells.fill(0x00, row2 + CHALF, row2 + 2 * CHALF);
-  }
-}
-
-// ============================================================================
-// Encoder pipeline: bytes → FEC-coded interleaved page cells.
-// Mirrors optar.c::feed_data. Accumulates BCH_K data bits via BigInt
-// (1 << 45 overflows JS 32-bit bitwise), encodes one BCH codeword at a time,
-// and writes its 63 channel bits interleaved across the page.
-// ============================================================================
-function encodeBytes(bytes, opts) {
-  const xcrosses = (opts && opts.xcrosses) || 65;
-  const ycrosses = (opts && opts.ycrosses) || 93;
-  const geom = makeGeometry(xcrosses, ycrosses);
-
-  const totalBits = bytes.length * 8;
-  const expectedPages = Math.max(1, Math.ceil(totalBits / geom.NETBITS));
-
-  const pages = [];
-  let cells = createBlankPage(geom);
-  let symbolIndex = 0;
-  // BigInt accumulator: low BCH_K bits hold the data so far, bit BCH_K is the
-  // sentinel that fires the encode-and-flush.
-  let payloadAccu = 1n;
-  const SENTINEL  = 1n << BigInt(BCH_K);
-  const DATA_MASK = SENTINEL - 1n;
-
-  function writeChannelBit(bit, seq) {
-    const xy = seq2xy(geom, seq);
-    const x = xy[0] + BORDER;
-    const y = xy[1] + BORDER;
-    cells[x + y * geom.WIDTH] = (bit & 1) ? 0x00 : 0xff;
-  }
-
-  function writePayloadBit(bit) {
-    payloadAccu = (payloadAccu << 1n) | BigInt(bit & 1);
-    if (payloadAccu & SENTINEL) {
-      const data = payloadAccu & DATA_MASK;
-      const code = bchEncode(data);
-      if (symbolIndex >= geom.FEC_SYMS) {
-        pages.push(cells);
-        cells = createBlankPage(geom);
-        symbolIndex = 0;
-      }
-      for (let shift = BCH_N - 1; shift >= 0; shift--) {
-        const seq = symbolIndex + (BCH_N - 1 - shift) * geom.FEC_SYMS;
-        const cb = Number((code >> BigInt(shift)) & 1n);
-        writeChannelBit(cb, seq);
-      }
-      payloadAccu = 1n;
-      symbolIndex++;
-    }
-  }
-
-  for (let i = 0; i < bytes.length; i++) {
-    const b = bytes[i];
-    for (let bit = 7; bit >= 0; bit--) writePayloadBit((b >>> bit) & 1);
-  }
-  // Flush any partial codeword with smallBits-1 zeros (matches optar.c).
-  for (let i = BCH_K - 1; i > 0; i--) writePayloadBit(0);
-  pages.push(cells);
-
-  return { geom, pages, nPages: pages.length, expectedPages };
-}
-
-// Renders a page (cells array at logical resolution) to a fresh canvas at
-// `scale` pixels per cell. Paints the format-string label on the text strip.
-function renderPageToCanvas(cells, geom, scale, opts) {
-  scale = scale | 0;
-  if (scale < 1) scale = 1;
-  const W = geom.WIDTH * scale;
-  const H = geom.HEIGHT * scale;
-
-  // Step 1: render cells to a logical-size canvas via ImageData.
-  const small = document.createElement('canvas');
-  small.width = geom.WIDTH;
-  small.height = geom.HEIGHT;
-  const sctx = small.getContext('2d');
-  const img = sctx.createImageData(geom.WIDTH, geom.HEIGHT);
-  const d = img.data;
-  for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
-    const v = cells[i];
-    d[j] = v; d[j + 1] = v; d[j + 2] = v; d[j + 3] = 255;
-  }
-  sctx.putImageData(img, 0, 0);
-
-  // Step 2: scale up via drawImage with smoothing disabled.
-  const big = document.createElement('canvas');
-  big.width = W;
-  big.height = H;
-  const bctx = big.getContext('2d');
-  bctx.imageSmoothingEnabled = false;
-  bctx.drawImage(small, 0, 0, W, H);
-
-  // Step 3: paint label text in the text strip.
-  if (opts && opts.label) {
-    const stripTop = (BORDER + geom.DATA_HEIGHT) * scale;
-    const stripH   = TEXT_HEIGHT * scale;
-    bctx.fillStyle = 'white';
-    const fontPx = Math.max(8, Math.floor(stripH * 0.7));
-    bctx.font = `${fontPx}px monospace`;
-    bctx.textBaseline = 'middle';
-    bctx.textAlign = 'left';
-    const textY = stripTop + stripH / 2;
-    const textX = (BORDER + 4) * scale;
-    bctx.fillText(opts.label, textX, textY);
-  }
-  return big;
-}
-
-// ============================================================================
-// Decoder pipeline: ImageData → bytes.
-//
-// Ported from the C / Java reference unoptar.c so the JS decoder can read
-// real-world scans, not just self-rendered canvases. Stages:
-//   1. analyzeCutlevel    — iterative global black/white threshold.
-//   2. findCorners        — diagonal scan for the four page corners.
-//   3. computeVectors     — pixel-direction unit vectors + per-cell sizes.
-//   4. syncCrosses        — locate every (cx, cy) sync cross via correlation
-//                           with a checkerboard template; sub-pixel refine.
-//   5. crossStats         — per-cross local cutlevel for uneven illumination.
-//   6. bitCoord           — bilinear interpolation between the 4 surrounding
-//                           crosses to find the pixel center for any data cell.
-//   7. decode loop        — sample each bit, BCH-decode codeword, emit bytes.
-//
-// Magic constants are intentionally close to the C reference's tuned values.
-// ============================================================================
-
-const SYNC_WHITE_CUT = 0.10; // cut fraction used during cross-finding
-const WHITE_CUT      = 0.06; // cut fraction used during data-bit thresholding
-const CROSS_TRIM     = 0.75; // pixels trimmed from cross template before correl
-const FINESTEP       = 0.25; // sub-pixel resync step
-
-function imageDataToGray(imgData) {
-  const d = imgData.data;
-  const n = imgData.width * imgData.height;
-  const out = new Uint8Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) {
-    out[i] = (d[j] * 299 + d[j + 1] * 587 + d[j + 2] * 114 + 500) / 1000 | 0;
-  }
-  return out;
-}
-
-// Iteratively converge on a global cutlevel by computing per-side RMS
-// distances from the current cut, then re-cutting between mean-black and
-// mean-white. Mirrors unoptar.c::analyze_cutlevel.
-function analyzeCutlevel(gray) {
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < gray.length; i++) hist[gray[i]]++;
-  let total = 0;
-  for (let i = 0; i < gray.length; i++) total += gray[i];
-  const n = gray.length;
-  let cut = ((total + (n >> 1)) / n) | 0;
-  for (let iter = 0; iter < 32; iter++) {
-    const last = cut;
-    let whiteRms = 0, blackRms = 0;
-    let blackPixels = 0, whitePixels = 0;
-    for (let i = 0; i < cut; i++) {
-      const d = cut - i;
-      blackRms += hist[i] * d * d;
-      blackPixels += hist[i];
-    }
-    for (let i = cut + 1; i < 256; i++) {
-      const d = i - cut;
-      whiteRms += hist[i] * d * d;
-      whitePixels += hist[i];
-    }
-    if (whitePixels) whiteRms = Math.sqrt(whiteRms / whitePixels);
-    if (blackPixels) blackRms = Math.sqrt(blackRms / blackPixels);
-    const white = cut + whiteRms;
-    const black = cut - blackRms;
-    cut = Math.floor(white * SYNC_WHITE_CUT + black * (1 - SYNC_WHITE_CUT) + 0.5);
-    if (cut === last) break;
-  }
-  return cut;
-}
-
-function getpixu(gray, W, H, x, y) {
-  if (x < 0 || y < 0 || x >= W || y >= H) return 0xff;
-  return gray[x + y * W];
-}
-
-// Diagonal sweep from a corner of the image. (xstart, ystart) is the corner
-// pixel; (dx, dy) is the inward diagonal direction. Returns [x, y] of the
-// first dark pixel encountered, or null.
-function diagScan(gray, W, H, xstart, ystart, dx, dy, cut) {
-  const limit = Math.min(W, H);
-  for (let xb = xstart, len = 1;
-       (dx > 0 ? xb < limit : xb >= 0) && len <= limit;
-       xb += dx, len++) {
-    let x = xb, y = ystart;
-    for (let c = len; c > 0; c--, x -= dx, y += dy) {
-      if (x < 0 || y < 0 || x >= W || y >= H) continue;
-      if (gray[x + y * W] < cut) return [x, y];
-    }
-  }
-  return null;
-}
-
-function findCorners(gray, W, H, cut) {
-  const ul = diagScan(gray, W, H, 0,     0,     1,  1, cut);
-  const ur = diagScan(gray, W, H, W - 1, 0,    -1,  1, cut);
-  const ll = diagScan(gray, W, H, 0,     H - 1, 1, -1, cut);
-  const lr = diagScan(gray, W, H, W - 1, H - 1, -1, -1, cut);
-  if (!ul || !ur || !ll || !lr) {
-    throw new Error('decoder: cannot find page corners');
-  }
-  // Match the C convention: UR.x and LR.x are the column *just past* the
-  // corner pixel (so the page extends through the full pixel), same for
-  // bottom-row corners on Y.
-  return [
-    [ul[0],     ul[1]],
-    [ur[0] + 1, ur[1]],
-    [ll[0],     ll[1] + 1],
-    [lr[0] + 1, lr[1] + 1],
-  ];
-}
-
-// Compute the right-pointing and down-pointing pixel unit vectors and the
-// average pixels-per-cell along each axis.
-function computeVectors(corners, geom) {
-  const [ul, ur, ll, lr] = corners;
-  let pixelhx = (ur[0] + lr[0] - ul[0] - ll[0]) / 2;
-  let pixelhy = (ur[1] + lr[1] - ul[1] - ll[1]) / 2;
-  let pixelvx = (ll[0] + lr[0] - ul[0] - ur[0]) / 2;
-  let pixelvy = (ll[1] + lr[1] - ul[1] - ur[1]) / 2;
-  const hl = Math.hypot(pixelhx, pixelhy);
-  const vl = Math.hypot(pixelvx, pixelvy);
-  pixelhx /= hl; pixelhy /= hl;
-  pixelvx /= vl; pixelvy /= vl;
-
-  // Pixels per logical cell, averaged over the two parallel page edges.
-  const hpixel = ((ur[0] + lr[0] - ul[0] - ll[0]) / 2) / geom.WIDTH;
-  const vpixel = ((ll[1] + lr[1] - ul[1] - ur[1]) / 2) / geom.HEIGHT;
-
-  const chalf     = Math.max(1, Math.floor(Math.min(hpixel, vpixel) * CHALF * 0.5));
-  const chalfFine = Math.max(1, Math.floor(Math.min(hpixel * (CHALF - CROSS_TRIM),
-                                                    vpixel * (CHALF - CROSS_TRIM))));
-  return { pixelhx, pixelhy, pixelvx, pixelvy, hpixel, vpixel, chalf, chalfFine };
-}
-
-function bilinear(ul, ur, ll, lr, hpar, vpar) {
-  const u = ur * hpar + ul * (1 - hpar);
-  const l = lr * hpar + ll * (1 - hpar);
-  return l * vpar + u * (1 - vpar);
-}
-
-function getPixelInterp(gray, W, H, x, y) {
-  const xi = x < 0 ? 0 : Math.floor(x);
-  const yi = y < 0 ? 0 : Math.floor(y);
-  return bilinear(
-    getpixu(gray, W, H, xi,     yi),
-    getpixu(gray, W, H, xi + 1, yi),
-    getpixu(gray, W, H, xi,     yi + 1),
-    getpixu(gray, W, H, xi + 1, yi + 1),
-    x - xi, y - yi
-  );
-}
-
-// Cross-correlation of the page image at (x, y) against the 2×2 checker
-// template. Quadrant signs match unoptar.c::cross_correl.
-function crossCorrel(gray, W, H, v, globalCut, cx, cy) {
-  let sum = 0;
-  const ch = v.chalfFine;
-  for (let dy = 0; dy < ch; dy++) {
-    for (let dx = 0; dx < ch; dx++) {
-      sum -= getPixelInterp(gray, W, H, cx + dx,         cy + dy)         - globalCut;
-      sum -= getPixelInterp(gray, W, H, cx - 1 - dx,     cy - 1 - dy)     - globalCut;
-      sum += getPixelInterp(gray, W, H, cx + dx,         cy - 1 - dy)     - globalCut;
-      sum += getPixelInterp(gray, W, H, cx - 1 - dx,     cy + dy)         - globalCut;
-    }
-  }
-  return sum;
-}
-
-// Refine a predicted cross center via correlation. Coarse search ± chalf in
-// pixels along the page axes, then sub-pixel along the same axes at
-// FINESTEP resolution.
-function resyncCross(gray, W, H, v, globalCut, coord) {
-  const phx = v.pixelhx, phy = v.pixelhy, pvx = v.pixelvx, pvy = v.pixelvy;
-  const ch = v.chalf;
-  let bestX = coord[0], bestY = coord[1];
-  let best = crossCorrel(gray, W, H, v, globalCut, bestX, bestY);
-  for (let xoff = -ch; xoff <= ch; xoff++) {
-    for (let yoff = -ch; yoff <= ch; yoff++) {
-      const sx = coord[0] + xoff * phx + yoff * pvx;
-      const sy = coord[1] + xoff * phy + yoff * pvy;
-      const r = crossCorrel(gray, W, H, v, globalCut, sx, sy);
-      if (r > best) { best = r; bestX = sx; bestY = sy; }
-    }
-  }
-  // Sub-pixel.
-  const HALFRANGE = Math.floor(0.5 / FINESTEP);
-  let fx = bestX, fy = bestY;
-  best = crossCorrel(gray, W, H, v, globalCut, fx, fy);
-  for (let xoff = -HALFRANGE; xoff <= HALFRANGE; xoff++) {
-    for (let yoff = -HALFRANGE; yoff <= HALFRANGE; yoff++) {
-      const sx = bestX + xoff * FINESTEP * phx + yoff * FINESTEP * pvx;
-      const sy = bestY + xoff * FINESTEP * phy + yoff * FINESTEP * pvy;
-      const r = crossCorrel(gray, W, H, v, globalCut, sx, sy);
-      if (r > best) { best = r; fx = sx; fy = sy; }
-    }
-  }
-  coord[0] = fx;
-  coord[1] = fy;
-}
-
-// Local cutlevel around a single cross — mirrors unoptar.c::cross_stats.
-function crossStats(gray, W, H, v, globalCut, cx, cy) {
-  const hh = Math.floor(v.hpixel * (CHALF - CROSS_TRIM));
-  const vh = Math.floor(v.vpixel * (CHALF - CROSS_TRIM));
-  let whiteRms = 0, blackRms = 0;
-  let whitePix = 0, blackPix = 0;
-  for (let xoff = -hh; xoff <= hh; xoff++) {
-    for (let yoff = -vh; yoff <= vh; yoff++) {
-      const sx = cx + xoff * v.pixelhx + yoff * v.pixelvx;
-      const sy = cy + xoff * v.pixelhy + yoff * v.pixelvy;
-      const val = getPixelInterp(gray, W, H, sx, sy);
-      if (val > globalCut)      { const d = val - globalCut; whiteRms += d * d; whitePix++; }
-      else if (val < globalCut) { const d = val - globalCut; blackRms += d * d; blackPix++; }
-    }
-  }
-  if (!whitePix || !blackPix) return globalCut;
-  whiteRms = Math.sqrt(whiteRms / whitePix);
-  blackRms = Math.sqrt(blackRms / blackPix);
-  const white = globalCut + whiteRms;
-  const black = globalCut - blackRms;
-  return white * WHITE_CUT + black * (1 - WHITE_CUT);
-}
-
-function syncCrosses(gray, W, H, corners, v, geom, globalCut) {
-  const xc = geom.xcrosses, yc = geom.ycrosses;
-  // Per-cross center coordinates (sub-pixel) and per-cross local cutlevels.
-  const crosses = new Array(xc);
-  const cutlevels = new Array(xc);
-  for (let i = 0; i < xc; i++) {
-    crosses[i] = new Array(yc);
-    cutlevels[i] = new Float32Array(yc);
-    for (let j = 0; j < yc; j++) crosses[i][j] = [0, 0];
-  }
-  // Step deltas between adjacent crosses, expressed in image pixels.
-  const rightx = ((corners[1][0] + corners[3][0] - corners[0][0] - corners[2][0]) / 2) * CPITCH / geom.WIDTH;
-  const righty = ((corners[1][1] + corners[3][1] - corners[0][1] - corners[2][1]) / 2) * CPITCH / geom.WIDTH;
-  const downx  = ((corners[2][0] + corners[3][0] - corners[0][0] - corners[1][0]) / 2) * CPITCH / geom.HEIGHT;
-  const downy  = ((corners[2][1] + corners[3][1] - corners[0][1] - corners[1][1]) / 2) * CPITCH / geom.HEIGHT;
-  // Initial estimate for cross[0][0] sits one (BORDER + CHALF)/page-side
-  // fraction in from the upper-left corner.
-  const fx = (BORDER + CHALF) / geom.WIDTH;
-  const fy = (BORDER + CHALF) / geom.HEIGHT;
-  crosses[0][0][0] = bilinear(corners[0][0], corners[1][0], corners[2][0], corners[3][0], fx, fy);
-  crosses[0][0][1] = bilinear(corners[0][1], corners[1][1], corners[2][1], corners[3][1], fx, fy);
-
-  for (let cy = 0; cy < yc; cy++) {
-    for (let cx = 0; cx < xc; cx++) {
-      if (cx > 0) {
-        crosses[cx][cy][0] = crosses[cx - 1][cy][0] + rightx;
-        crosses[cx][cy][1] = crosses[cx - 1][cy][1] + righty;
-      } else if (cy > 0) {
-        crosses[cx][cy][0] = crosses[cx][cy - 1][0] + downx;
-        crosses[cx][cy][1] = crosses[cx][cy - 1][1] + downy;
-      }
-      resyncCross(gray, W, H, v, globalCut, crosses[cx][cy]);
-      cutlevels[cx][cy] = crossStats(gray, W, H, v, globalCut,
-                                      crosses[cx][cy][0], crosses[cx][cy][1]);
-    }
-  }
-  return { crosses, cutlevels };
-}
-
-// Map a data-cell coordinate (0..DATA_WIDTH-1, 0..DATA_HEIGHT-1) to a sample
-// pixel + local cutlevel by bilinear interpolation across the four crosses
-// surrounding that cell.
-function bitCoord(crosses, cutlevels, xb, yb, geom, out) {
-  let cx = xb < CHALF ? 0 : ((xb - CHALF) / CPITCH) | 0;
-  let cy = yb < CHALF ? 0 : ((yb - CHALF) / CPITCH) | 0;
-  if (cx > geom.xcrosses - 2) cx = geom.xcrosses - 2;
-  if (cy > geom.ycrosses - 2) cy = geom.ycrosses - 2;
-  const rx = xb - (cx * CPITCH + CHALF);
-  const ry = yb - (cy * CPITCH + CHALF);
-  const xrem = (rx + 0.5) / CPITCH;
-  const yrem = (ry + 0.5) / CPITCH;
-  const c00 = crosses[cx][cy], c10 = crosses[cx + 1][cy];
-  const c01 = crosses[cx][cy + 1], c11 = crosses[cx + 1][cy + 1];
-  out[0] = bilinear(c00[0], c10[0], c01[0], c11[0], xrem, yrem) - 0.5;
-  out[1] = bilinear(c00[1], c10[1], c01[1], c11[1], xrem, yrem) - 0.5;
-  out[2] = bilinear(cutlevels[cx][cy], cutlevels[cx + 1][cy],
-                    cutlevels[cx][cy + 1], cutlevels[cx + 1][cy + 1],
-                    xrem, yrem);
-}
-
-function decodeImageData(imgData, opts) {
-  const xcrosses = (opts && opts.xcrosses) || 65;
-  const ycrosses = (opts && opts.ycrosses) || 93;
-  const geom = makeGeometry(xcrosses, ycrosses);
-
-  const W = imgData.width;
-  const H = imgData.height;
-  const gray = imageDataToGray(imgData);
-
-  const globalCut = analyzeCutlevel(gray);
-  const corners   = findCorners(gray, W, H, globalCut);
-  const vectors   = computeVectors(corners, geom);
-  const sync      = syncCrosses(gray, W, H, corners, vectors, geom, globalCut);
-  const { crosses, cutlevels } = sync;
-
-  const errorStats = [0, 0, 0, 0, 0]; // 0..3 corrected; 4 = irreparable
-  const out = new Uint8Array(geom.NETBITS / 8);
-  let outIndex = 0;
-  let payloadAccu = 1;
-  const xy   = [0, 0];
-  const xyc  = [0, 0, 0];
-
-  for (let sym = 0; sym < geom.FEC_SYMS; sym++) {
-    let received = 0n;
-    for (let bit = 0; bit < BCH_N; bit++) {
-      const seq = sym + bit * geom.FEC_SYMS;
-      seq2xyInto(geom, seq, xy);
-      bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
-      const sample = getPixelInterp(gray, W, H, xyc[0], xyc[1]);
-      received = (received << 1n) | (sample < xyc[2] ? 1n : 0n);
-    }
-    const dec = bchDecode(received);
-    errorStats[dec.reparable ? Math.min(3, dec.errors) : 4]++;
-    const dataBig = BigInt(dec.data);
-    for (let shift = BCH_K - 1; shift >= 0; shift--) {
-      const b = Number((dataBig >> BigInt(shift)) & 1n);
-      payloadAccu = ((payloadAccu << 1) | b) & 0x1ff;
-      if (payloadAccu & 0x100) {
-        out[outIndex++] = payloadAccu & 0xff;
-        payloadAccu = 1;
-      }
-    }
-  }
-
-  return {
-    geom, bytes: out, stats: { errors: errorStats },
-    corners, crosses, globalCut,
-  };
-}
-
-// In-place version of seq2xy that writes into a caller-supplied 2-element
-// array so the inner decode loop doesn't allocate a new tuple per bit.
-function seq2xyInto(geom, seq, out) {
-  if (seq >= geom.TOTALBITS) { out[0] = -1; out[1] = -1; return; }
-  const rep = (seq / geom.REPPIXELS) | 0;
-  let s = seq - rep * geom.REPPIXELS;
-  let y = geom.REPHEIGHT * rep;
-  let x;
-  if (s >= geom.NARROWPIXELS) {
-    y += geom.NARROWHEIGHT;
-    s -= geom.NARROWPIXELS;
-    y += (s / geom.WIDEWIDTH) | 0;
-    x  = s - ((s / geom.WIDEWIDTH) | 0) * geom.WIDEWIDTH;
-  } else {
-    x = 2 * CHALF;
-    y += (s / geom.NARROWWIDTH) | 0;
-    s = s - ((s / geom.NARROWWIDTH) | 0) * geom.NARROWWIDTH;
-    const gap = (s / geom.GAPWIDTH) | 0;
-    x += gap * CPITCH;
-    s = s - gap * geom.GAPWIDTH;
-    x += s;
-  }
-  out[0] = x;
-  out[1] = y;
-}
-
-// Read a File/Blob as Uint8Array (browser API).
-function readFileAsBytes(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(new Uint8Array(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-// Read a File/Blob as ImageData by drawing it onto a canvas.
-function readFileAsImageData(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        const cx = c.getContext('2d');
-        cx.drawImage(img, 0, 0);
-        resolve(cx.getImageData(0, 0, c.width, c.height));
-      };
-      img.onerror = () => reject(new Error('image decode failed'));
-      img.src = reader.result;
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-// ============================================================================
-// Per-file payload header: magic + sha256 + filename + file-data.
-//
-// Layout (single header per file, prepended once before the bytes are split
-// across pages by the FEC pipeline):
-//   "OPTR"   4 B   magic
-//   sha256  32 B   digest of file-data
-//   filename n B   UTF-8 bytes, terminated by a NUL (filenames cannot
-//                  contain NUL on any modern OS)
-//   file-data ... B   the file content; trailing zero-byte padding from the
-//                  FEC bit-flush is stripped at decode time and verified
-//                  against the SHA-256.
-//
-// On decode we look for the magic at offset 0. If absent, fall back to "raw"
-// mode (no header) — keeps interop with C / Java pipelines which don't write
-// a header. If the header is present but the SHA-256 of the trimmed body
-// doesn't match (e.g. the file legitimately ends in zero bytes), the
-// decoder still returns the body but flags hashOk=false so the user knows.
-// ============================================================================
-const OPTAR_HEADER_MAGIC = [0x4f, 0x50, 0x54, 0x52]; // "OPTR"
-
-async function sha256Bytes(bytes) {
-  const buf = await crypto.subtle.digest('SHA-256', bytes);
-  return new Uint8Array(buf);
-}
-
-function hexBytes(u8) {
-  let s = '';
-  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
-  return s;
-}
-
-async function wrapWithHeader(fileBytes, filename) {
-  const nameUtf8 = new TextEncoder().encode(filename || '');
-  for (let i = 0; i < nameUtf8.length; i++) {
-    if (nameUtf8[i] === 0) {
-      throw new Error('filename cannot contain a NUL byte');
-    }
-  }
-  const digest = await sha256Bytes(fileBytes);
-  const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + fileBytes.length);
-  let p = 0;
-  for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC[i];
-  out.set(digest, p);   p += 32;
-  out.set(nameUtf8, p); p += nameUtf8.length;
-  out[p++] = 0;         // NUL terminator for filename
-  out.set(fileBytes, p);
-  return out;
-}
-
-async function unwrapHeader(decodedBytes) {
-  // Returns { hasHeader, filename, sha256, body, hashOk, error? }.
-  // hasHeader=false ⇒ caller treats the input as raw (no OPTR wrapping).
-  const minSize = 4 + 32 + 1; // magic + sha + NUL
-  if (decodedBytes.length < minSize) return { hasHeader: false, body: decodedBytes };
-  for (let i = 0; i < 4; i++) {
-    if (decodedBytes[i] !== OPTAR_HEADER_MAGIC[i]) {
-      return { hasHeader: false, body: decodedBytes };
-    }
-  }
-  const sha = decodedBytes.subarray(4, 36);
-  // Find NUL terminator for the filename.
-  let nameEnd = 36;
-  while (nameEnd < decodedBytes.length && decodedBytes[nameEnd] !== 0) nameEnd++;
-  if (nameEnd >= decodedBytes.length) {
-    return { hasHeader: true, error: 'filename has no NUL terminator',
-             body: new Uint8Array(0) };
-  }
-  const filename = new TextDecoder('utf-8', { fatal: false })
-    .decode(decodedBytes.subarray(36, nameEnd));
-  const dataStart = nameEnd + 1;
-
-  // Trim the FEC's trailing zero-byte page padding. SHA-256 verifies this
-  // is correct; a file that legitimately ends in zero bytes will fail
-  // verification and the caller is informed via hashOk=false.
-  let dataEnd = decodedBytes.length;
-  while (dataEnd > dataStart && decodedBytes[dataEnd - 1] === 0) dataEnd--;
-  const body = decodedBytes.subarray(dataStart, dataEnd);
-
-  const computed = await sha256Bytes(body);
-  let hashOk = true;
-  for (let i = 0; i < 32; i++) if (computed[i] !== sha[i]) { hashOk = false; break; }
-
-  return { hasHeader: true, filename, sha256: hexBytes(sha), body, hashOk };
-}
-
-// ============================================================================
-// Format-string utilities.
-// ============================================================================
-function buildFormatString(geom, pageNumber, totalPages, label) {
-  // 0-XCROSSES-YCROSSES-CPITCH-CHALF-FEC_ORDER-BORDER-TEXT_HEIGHT
-  // FEC_ORDER = 10 → BCH(63, 45, t=3) (this implementation).
-  const core = `0-${geom.xcrosses}-${geom.ycrosses}-${CPITCH}-${CHALF}-${FEC_ORDER}-${BORDER}-${TEXT_HEIGHT}`;
-  return `${core} ${pageNumber}/${totalPages} ${label || ''}`.trim();
-}
-
-function parseFormatString(s) {
-  const head = s.trim().split(/\s+/)[0] || '';
-  const parts = head.split('-');
-  if (parts.length >= 8) {
-    const xcrosses = parseInt(parts[1], 10);
-    const ycrosses = parseInt(parts[2], 10);
-    if (Number.isFinite(xcrosses) && Number.isFinite(ycrosses)) {
-      return { xcrosses, ycrosses };
-    }
-  }
-  return null;
-}
-
-// ============================================================================
-// Streaming mode (encode side).
-//
-// Full-screen player that cycles a sequence of rendered page canvases at a
-// fixed rate after a countdown, so the user can screen-record the playback
-// instead of printing the pages. Pages are drawn at intrinsic pixel size
-// (no smoothing) so each one captures cleanly into a recording frame.
-// ============================================================================
-function streamPages(canvases, opts) {
-  const fps       = (opts && opts.fps)       || 10;
-  const countdown = (opts && opts.countdown) || 3;
-  const onDone    = opts && opts.onDone;
-
-  const host    = document.getElementById('stream-host');
-  const content = document.getElementById('stream-content');
-  const cdEl    = document.getElementById('stream-countdown');
-  const infoEl  = document.getElementById('stream-info');
-  const hintEl  = document.getElementById('stream-hint');
-
-  content.innerHTML = '';
-  host.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
-  if (host.requestFullscreen) host.requestFullscreen().catch(() => {});
-
-  hintEl.textContent =
-    `Start your screen recording NOW. Press Esc to cancel.`;
-  infoEl.textContent =
-    `${canvases.length} page${canvases.length === 1 ? '' : 's'} @ ${fps}/sec ` +
-    `(${(canvases.length * 1000 / fps / 1000).toFixed(1)}s playback)`;
-
-  let cancelled = false;
-  function close() {
-    if (cancelled) return;
-    cancelled = true;
-    host.classList.add('hidden');
-    cdEl.textContent = '';
-    document.body.style.overflow = '';
-    window.removeEventListener('keydown', onKey);
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(() => {});
-    }
-    if (onDone) onDone({ cancelled: cancelled && !done });
-  }
-  function onKey(e) { if (e.key === 'Escape') close(); }
-  window.addEventListener('keydown', onKey);
-  let done = false;
-
-  // Countdown phase.
-  let t = countdown;
-  cdEl.textContent = String(t);
-  const cdTimer = setInterval(() => {
-    if (cancelled) { clearInterval(cdTimer); return; }
-    t--;
-    if (t > 0) {
-      cdEl.textContent = String(t);
-    } else {
-      clearInterval(cdTimer);
-      cdEl.textContent = '';
-      hintEl.textContent = `Streaming pages — keep recording until "DONE"`;
-      playSequence();
-    }
-  }, 1000);
-
-  function playSequence() {
-    let i = 0;
-    const intervalMs = 1000 / fps;
-    const tStart = performance.now();
-    function showPage() {
-      if (cancelled) return;
-      if (i >= canvases.length) {
-        done = true;
-        cdEl.textContent = 'DONE';
-        cdEl.style.fontSize = '120px';
-        infoEl.textContent =
-          `Recorded ${canvases.length} page${canvases.length === 1 ? '' : 's'} ` +
-          `in ${((performance.now() - tStart) / 1000).toFixed(2)}s. Stop recording.`;
-        setTimeout(() => {
-          cdEl.style.fontSize = '';
-          close();
-        }, 2000);
-        return;
-      }
-      content.innerHTML = '';
-      // Clone the canvas so we don't yank the source out of the page card.
-      const src = canvases[i];
-      const dst = document.createElement('canvas');
-      dst.width  = src.width;
-      dst.height = src.height;
-      dst.getContext('2d').drawImage(src, 0, 0);
-      content.appendChild(dst);
-      infoEl.textContent = `page ${i + 1} / ${canvases.length}`;
-      i++;
-      setTimeout(showPage, intervalMs);
-    }
-    showPage();
-  }
-}
-
-// ============================================================================
-// Streaming mode (decode side).
-//
-// Take a sequence of frame-captured ImageDatas (or a video file) and decode
-// them into the original byte stream. The same page is captured by multiple
-// recording frames (e.g. 6 frames at 60 fps for each 100 ms page); the
-// stitcher dedupes by hashing the decoded body and concatenates the unique
-// pages in order of first appearance.
-// ============================================================================
-async function stitchFrames(frames, opts) {
-  // frames: array of ImageData. opts: { xcrosses, ycrosses, onProgress(frame, total) }
-  const xcrosses = (opts && opts.xcrosses) || 65;
-  const ycrosses = (opts && opts.ycrosses) || 93;
-  const onProgress = opts && opts.onProgress;
-
-  const seen = new Set();      // page-content hash → already counted
-  const order = [];            // unique decoded results in capture order
-  const aggStats = [0, 0, 0, 0, 0];
-  let unique = 0, dupes = 0, failed = 0;
-
-  for (let f = 0; f < frames.length; f++) {
-    if (onProgress) onProgress(f, frames.length);
-    let dec;
-    try {
-      dec = decodeImageData(frames[f], { xcrosses, ycrosses });
-    } catch (e) {
-      failed++;
-      continue;
-    }
-    // Reject frames the decoder can't make sense of (mid-transition
-    // captures, frames outside the playback window, or background noise).
-    // Three signals:
-    //  (a) too many irreparable codewords;
-    //  (b) too many codewords needing *any* correction;
-    //  (c) the recovered body has near-zero entropy. Garbage frames slip
-    //      past (a) and (b) because cross sync over random pixels tends
-    //      to cluster all the cell-sampling positions onto the same
-    //      handful of pixels, which decodes as a long run of identical
-    //      values (usually all 0x00). A real Optar page — random data,
-    //      OPTR header, format bits — sees > 16 distinct byte values
-    //      within the first 64 bytes essentially always.
-    const e = dec.stats.errors;
-    const totalSyms = e[0] + e[1] + e[2] + e[3] + e[4];
-    const nonzero  = totalSyms - e[0];
-    if (e[4] > totalSyms * 0.05 || nonzero > totalSyms * 0.5) {
-      failed++;
-      continue;
-    }
-    const distinct = new Set();
-    const probeLen = Math.min(dec.bytes.length, 1024);
-    for (let i = 0; i < probeLen; i++) {
-      distinct.add(dec.bytes[i]);
-      if (distinct.size >= 32) break;
-    }
-    if (distinct.size < 12) {
-      failed++;
-      continue;
-    }
-
-    const hashBuf = await crypto.subtle.digest('SHA-256', dec.bytes);
-    const hashHex = hexBytes(new Uint8Array(hashBuf));
-    if (seen.has(hashHex)) { dupes++; continue; }
-    seen.add(hashHex);
-    order.push(dec);
-    for (let k = 0; k < 5; k++) aggStats[k] += dec.stats.errors[k];
-    unique++;
-  }
-  if (onProgress) onProgress(frames.length, frames.length);
-
-  // Concatenate unique pages in capture order.
-  let total = 0;
-  for (const d of order) total += d.bytes.length;
-  const merged = new Uint8Array(total);
-  let off = 0;
-  for (const d of order) { merged.set(d.bytes, off); off += d.bytes.length; }
-
-  return {
-    bytes: merged,
-    stats: { errors: aggStats },
-    unique, dupes, failed,
-    framesIn: frames.length,
-  };
-}
-
-// Pull frames out of a video File/Blob by stepping a <video> element through
-// it at `sampleFps` and drawImage-ing each into a canvas. Browser support:
-// Chromium handles MP4 (H.264), WebM, MOV; codec coverage varies elsewhere.
-async function extractVideoFrames(file, opts) {
-  const sampleFps = (opts && opts.sampleFps) || 30;
-  const onProgress = opts && opts.onProgress;
-  const url = URL.createObjectURL(file);
-  try {
-    const video = document.createElement('video');
-    video.src = url;
-    video.muted = true;
-    video.playsInline = true;
-    video.preload = 'auto';
-    await new Promise((res, rej) => {
-      video.onloadedmetadata = () => res();
-      video.onerror = () => rej(new Error('cannot load video (unsupported codec?)'));
-    });
-    const W = video.videoWidth;
-    const H = video.videoHeight;
-    let duration = video.duration;
-
-    // Seek-past-end probe to recover duration when the container lacks it
-    // (typical for MediaRecorder WebM and many screen recordings).
-    if (!Number.isFinite(duration) || duration <= 0) {
-      try {
-        await new Promise((res, rej) => {
-          video.onseeked = () => res();
-          video.onerror = () => rej(new Error('probe seek failed'));
-          video.currentTime = 1e9;
-        });
-        duration = video.duration;
-        if (!Number.isFinite(duration) || duration <= 0) {
-          // Some Chromium builds expose end-of-stream via seekable ranges.
-          if (video.seekable.length > 0) {
-            duration = video.seekable.end(video.seekable.length - 1);
-          }
-        }
-      } catch (_) { /* fall through to playback-based path */ }
-    }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext('2d');
-
-    if (Number.isFinite(duration) && duration > 0 && video.seekable.length > 0) {
-      // Seek-based path — fastest, lets us hit any sample rate cleanly.
-      try {
-        await new Promise((res) => { video.onseeked = () => res(); video.currentTime = 0; });
-      } catch (_) {}
-      const frames = [];
-      const total = Math.max(1, Math.floor(duration * sampleFps));
-      for (let i = 0; i < total; i++) {
-        const t = (i + 0.5) / sampleFps;
-        if (t >= duration) break;
-        await new Promise((res, rej) => {
-          video.onseeked = () => res();
-          video.onerror = () => rej(new Error('seek failed'));
-          video.currentTime = t;
-        });
-        ctx.drawImage(video, 0, 0);
-        frames.push(ctx.getImageData(0, 0, W, H));
-        if (onProgress) onProgress(i + 1, total);
-      }
-      return { frames, width: W, height: H, duration };
-    }
-
-    // Playback-based fallback for un-seekable / no-duration containers
-    // (MediaRecorder blobs without a seek index). Plays the video at native
-    // rate and snapshots every decoded frame via requestVideoFrameCallback.
-    if (!video.requestVideoFrameCallback) {
-      throw new Error('video has no duration metadata and rVFC is unavailable');
-    }
-    const frames = [];
-    let lastFrameT = 0;
-    await new Promise((resolve, reject) => {
-      function onFrame(_, metadata) {
-        ctx.drawImage(video, 0, 0);
-        frames.push(ctx.getImageData(0, 0, W, H));
-        lastFrameT = metadata.mediaTime;
-        if (onProgress) onProgress(frames.length, -1);
-        if (video.ended) { resolve(); return; }
-        video.requestVideoFrameCallback(onFrame);
-      }
-      video.addEventListener('ended', () => resolve());
-      video.addEventListener('error', () => reject(new Error('playback error')));
-      video.requestVideoFrameCallback(onFrame);
-      video.play().catch(reject);
-    });
-    return { frames, width: W, height: H, duration: lastFrameT };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-// ============================================================================
-// Test API: expose pure functions for Puppeteer to drive directly.
-// ============================================================================
-window.OPTAR = {
-  // Constants
-  BORDER, CHALF, CPITCH, TEXT_HEIGHT, FEC_LARGEBITS, FEC_SMALLBITS, FEC_ORDER,
-  BCH_N, BCH_K, BCH_T, BCH_GEN,
-  // Geometry & layout
-  makeGeometry, seq2xy,
-  // BCH codec
-  bchEncode, bchDecode, bchSyndromes, bchGfMul, bchGfDiv,
-  BCH_GF_EXP, BCH_GF_LOG,
-  // Interleave helpers
-  interleaveBits, deinterleaveBits,
-  // Pipeline
-  encodeBytes, decodeImageData,
-  // Header
-  wrapWithHeader, unwrapHeader, sha256Bytes, OPTAR_HEADER_MAGIC,
-  // Streaming
-  streamPages, stitchFrames, extractVideoFrames,
-  // Render
-  createBlankPage, renderPageToCanvas,
-  // Format string
-  buildFormatString, parseFormatString
-};
-
-// ============================================================================
-// UI controllers.
-// ============================================================================
 const $ = (id) => document.getElementById(id);
 
-// Tab switching.
+// --- Tab switching ---------------------------------------------------------
 const tabButtons = document.querySelectorAll('.tabs button');
 const panels = {
   encode:   $('tab-encode'),
@@ -1589,29 +289,25 @@ tabButtons.forEach(btn => {
   });
 });
 
-// Settings panel: live-update output dimensions + paper preset.
+// --- Settings panel --------------------------------------------------------
 const setX = $('set-xcrosses');
 const setY = $('set-ycrosses');
 const setScale = $('set-scale');
 const setPaper = $('set-paper');
 const setDims = $('set-dims');
+
 // Compute the largest XCROSSES/YCROSSES whose rendered canvas fits in the
 // current viewport at the given scale. WIDTH = 24·X − 14, HEIGHT = 24·Y + 10
-// (with the standard CPITCH=24, CHALF=3, BORDER=2, TEXT_HEIGHT=24 layout),
-// so we invert: maxX = ⌊(usableW/scale + 14) / 24⌋, similarly for Y. Reserves
-// space for the page-card chrome above the canvas (label + Download/Print
-// buttons) and outer body padding.
+// (with the standard CPITCH=24, CHALF=3, BORDER=2, TEXT_HEIGHT=24 layout).
 function fitToViewport(scale) {
   const winW = window.innerWidth;
   const winH = window.innerHeight;
-  const chromeW = 48;   // body padding (16) + page-card padding (12) + slack
+  const chromeW = 48;   // body padding + page-card padding + slack
   const chromeH = 110;  // page-card header + buttons + page-list margin
   const usableW = Math.max(100, winW - chromeW);
   const usableH = Math.max(100, winH - chromeH);
   const maxX = Math.floor((usableW / scale + 14) / 24);
   const maxY = Math.floor((usableH / scale - 10) / 24);
-  // Floor at 10 — anything smaller is sub-1 KB/page and not useful. Any
-  // reasonable desktop window leaves plenty of headroom above this.
   return {
     xcrosses: Math.max(10, Math.min(200, maxX)),
     ycrosses: Math.max(10, Math.min(200, maxY)),
@@ -1634,31 +330,20 @@ function refreshSettings() {
   const fits = (geom.WIDTH * scale <= window.innerWidth) &&
                (geom.HEIGHT * scale <= window.innerHeight - 110);
   setDims.innerHTML = `${px}, ~${cap} KB / page` +
-    (fits ? ' <span style="color: var(--ok)">✓ fits viewport</span>'
-          : ' <span style="color: var(--warn)">⚠ scrolling required</span>');
+    (fits ? ' <span class="ok">✓ fits viewport</span>'
+          : ' <span class="warn">⚠ scrolling required</span>');
 }
 [setX, setY, setScale].forEach(el => el.addEventListener('input', refreshSettings));
 setPaper.addEventListener('change', () => {
-  // If the user picks A4 or Letter we set fixed values; "Fit" defers to
-  // refreshSettings, which fills in fit-to-viewport values.
   const v = setPaper.value;
-  if (v === 'A4')          { setX.value = 65; setY.value = 93; }
+  if      (v === 'A4')     { setX.value = 65; setY.value = 93; }
   else if (v === 'Letter') { setX.value = 67; setY.value = 87; }
   refreshSettings();
 });
-// Re-fit on window resize, but only when "Fit to screen" is the active mode.
 window.addEventListener('resize', () => {
   if (setPaper.value === 'Fit') refreshSettings();
 });
 refreshSettings();
-
-// Encode tab.
-const encFile = $('enc-file');
-const encLabel = $('enc-label');
-const encGo = $('enc-go');
-const encInfo = $('enc-info');
-const encPages = $('enc-pages');
-let encSelectedFile = null;
 
 function currentSettings() {
   return {
@@ -1667,6 +352,14 @@ function currentSettings() {
     scale:    parseInt(setScale.value, 10) || DEFAULT_SCALE,
   };
 }
+
+// --- Encode tab ------------------------------------------------------------
+const encFile  = $('enc-file');
+const encLabel = $('enc-label');
+const encGo    = $('enc-go');
+const encInfo  = $('enc-info');
+const encPages = $('enc-pages');
+let encSelectedFile = null;
 
 encFile.addEventListener('change', () => {
   encSelectedFile = encFile.files && encFile.files[0] ? encFile.files[0] : null;
@@ -1707,7 +400,6 @@ encGo.addEventListener('click', async () => {
 
       const card = document.createElement('div');
       card.className = 'page-card';
-
       const meta = document.createElement('div');
       meta.className = 'meta';
       const pageLabel = document.createElement('div');
@@ -1741,31 +433,58 @@ encGo.addEventListener('click', async () => {
       allCanvases.push(canvas);
     }
 
-    // After rendering all pages, offer a single "Stream all pages" action.
-    // The streaming player cycles through them full-screen at 10 pages/sec
-    // after a 3-second countdown so the user can capture the playback as a
-    // screen recording (alternative to printing).
-    if (allCanvases.length > 0) {
-      const streamBox = document.createElement('div');
-      streamBox.style.cssText = 'margin-top: 16px; padding: 12px; background: #fff8e6; ' +
-                                'border: 1px solid #e6c97a; border-radius: 6px;';
+    // Add the "Download MP4" affordance after rendering all pages. Records
+    // the page sequence into a video file the user can open in any browser
+    // / native player; the decoder ingests it via extractVideoFrames.
+    if (allCanvases.length > 0 && typeof MediaRecorder !== 'undefined') {
+      const card = document.createElement('div');
+      card.className = 'video-card';
       const desc = document.createElement('div');
       desc.style.cssText = 'margin-bottom: 8px; font-size: 0.92em; color: #555;';
       desc.innerHTML =
-        '<strong>Stream pages</strong> — full-screen playback at 10 pages/sec, ' +
-        'recoverable from a screen recording. After clicking, you have a 3-second ' +
-        'countdown to start your screen recorder.';
-      streamBox.appendChild(desc);
+        '<strong>Download as video</strong> — encodes the page sequence into an MP4 ' +
+        '(or WebM) file at 10 pages/sec. Play it in any video player; to recover the ' +
+        'original file, drop the video back into the Decode tab. Useful when you can\'t print.';
+      card.appendChild(desc);
 
-      const streamBtn = document.createElement('button');
-      streamBtn.className = 'primary';
-      streamBtn.textContent = `▶ Stream ${allCanvases.length} page${allCanvases.length === 1 ? '' : 's'}`;
-      streamBtn.addEventListener('click', () => {
-        streamPages(allCanvases, { fps: 10, countdown: 3 });
+      const fpsLabel = document.createElement('label');
+      fpsLabel.style.cssText = 'margin-right: 12px; font-size: 0.92em;';
+      fpsLabel.innerHTML = 'pages/sec: <input type="number" id="vid-fps" value="10" min="1" max="30" style="width: 56px;">';
+      card.appendChild(fpsLabel);
+
+      const vidBtn = document.createElement('button');
+      vidBtn.className = 'primary';
+      vidBtn.textContent = `▶ Download as video (${allCanvases.length} page${allCanvases.length === 1 ? '' : 's'})`;
+      const vidStatus = document.createElement('span');
+      vidStatus.style.cssText = 'margin-left: 12px; color: #555;';
+      vidBtn.addEventListener('click', async () => {
+        vidBtn.disabled = true;
+        const fps = parseInt(card.querySelector('#vid-fps').value, 10) || 10;
+        try {
+          vidStatus.textContent = 'Recording...';
+          const { blob, mimeType, durationS } = await recordPagesToVideo(allCanvases, {
+            fps,
+            onProgress: (n, t) => { vidStatus.textContent = `Recording page ${n} / ${t}…`; },
+          });
+          const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `${labelBase || 'optar'}.${ext}`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+          vidStatus.textContent =
+            `✓ ${(blob.size / 1024).toFixed(1)} KB ${ext.toUpperCase()}, ` +
+            `${durationS.toFixed(1)}s playback`;
+        } catch (err) {
+          vidStatus.innerHTML = `<span class="bad">Recording failed: ${err.message}</span>`;
+        } finally {
+          vidBtn.disabled = false;
+        }
       });
-      streamBox.appendChild(streamBtn);
+      card.appendChild(vidBtn);
+      card.appendChild(vidStatus);
 
-      encPages.insertBefore(streamBox, encPages.firstChild);
+      encPages.insertBefore(card, encPages.firstChild);
     }
   } catch (err) {
     encInfo.innerHTML = `<span class="bad">Encode failed: ${err.message}</span>`;
@@ -1778,25 +497,23 @@ encGo.addEventListener('click', async () => {
 function printCanvas(canvas) {
   const host = $('print-host');
   host.innerHTML = '';
-  host.appendChild(canvas.cloneNode(true));
-  // Replace clone's image content with the original via drawImage
-  const cloned = host.querySelector('canvas');
+  const cloned = document.createElement('canvas');
   cloned.width = canvas.width;
   cloned.height = canvas.height;
   cloned.getContext('2d').drawImage(canvas, 0, 0);
-  // Size canvas to physical paper width via inches; assume 600 DPI canvas pixels.
-  const physInches = canvas.width / 600;
-  cloned.style.width = physInches + 'in';
+  // Size the canvas to physical paper dimensions, assuming 600 DPI source.
+  cloned.style.width  = (canvas.width  / 600) + 'in';
   cloned.style.height = (canvas.height / 600) + 'in';
+  host.appendChild(cloned);
   window.print();
 }
 
-// Decode tab.
-const decFiles = $('dec-files');
+// --- Decode tab ------------------------------------------------------------
+const decFiles  = $('dec-files');
 const decFormat = $('dec-format');
-const decGo = $('dec-go');
+const decGo     = $('dec-go');
 const decStatus = $('dec-status');
-const decStats = $('dec-stats');
+const decStats  = $('dec-stats');
 const decOutput = $('dec-output');
 let decSelectedFiles = [];
 
@@ -1807,7 +524,7 @@ decFiles.addEventListener('change', () => {
     decStatus.textContent = 'Choose one or more page images.';
     decGo.disabled = true;
   } else {
-    decStatus.textContent = `${decSelectedFiles.length} page${decSelectedFiles.length > 1 ? 's' : ''} selected.`;
+    decStatus.textContent = `${decSelectedFiles.length} file${decSelectedFiles.length > 1 ? 's' : ''} selected.`;
     decGo.disabled = false;
   }
 });
@@ -1818,13 +535,15 @@ decGo.addEventListener('click', async () => {
   decStats.innerHTML = '';
   decOutput.innerHTML = '';
   decStatus.textContent = 'Decoding...';
-
   try {
     const fmt = parseFormatString(decFormat.value);
     if (!fmt) throw new Error('Unable to parse format string');
 
     const allBytes = [];
     const aggStats = [0, 0, 0, 0, 0];
+    // Threaded byte accumulator: lets multi-page decodes across consecutive
+    // image files line up bit-for-bit when NETBITS isn't a multiple of 8.
+    const decodeState = { payloadAccu: 1 };
 
     for (let i = 0; i < decSelectedFiles.length; i++) {
       const file = decSelectedFiles[i];
@@ -1832,14 +551,12 @@ decGo.addEventListener('click', async () => {
                       /\.(mp4|webm|mov|mkv|m4v)$/i.test(file.name);
 
       if (isVideo) {
-        // Video file → frame extraction → stitch.
         decStatus.textContent =
           `Reading video ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
         const { frames, duration } = await extractVideoFrames(file, {
           sampleFps: 30,
           onProgress: (n, t) => {
-            decStatus.textContent =
-              `${file.name}: extracting frames ${n} / ${t}...`;
+            decStatus.textContent = `${file.name}: extracting frames ${n} / ${t}...`;
           },
         });
         decStatus.textContent =
@@ -1847,8 +564,7 @@ decGo.addEventListener('click', async () => {
         const stitched = await stitchFrames(frames, {
           xcrosses: fmt.xcrosses, ycrosses: fmt.ycrosses,
           onProgress: (n, t) => {
-            decStatus.textContent =
-              `${file.name}: decoding frame ${n} / ${t}...`;
+            decStatus.textContent = `${file.name}: decoding frame ${n} / ${t}...`;
           },
         });
         allBytes.push(stitched.bytes);
@@ -1865,11 +581,10 @@ decGo.addEventListener('click', async () => {
           `<span class="stat bad">irreparable ${stitched.stats.errors[4]}</span>`;
         decStats.appendChild(stat);
       } else {
-        // Image file → existing single-page path.
         decStatus.textContent =
           `Decoding page ${i + 1} / ${decSelectedFiles.length} (${file.name})...`;
         const imgData = await readFileAsImageData(file);
-        const result = decodeImageData(imgData, fmt);
+        const result = decodeImageData(imgData, { ...fmt, state: decodeState });
         allBytes.push(result.bytes);
         for (let k = 0; k < 5; k++) aggStats[k] += result.stats.errors[k];
 
@@ -1886,15 +601,12 @@ decGo.addEventListener('click', async () => {
       }
     }
 
-    // Concatenate all pages.
-    let total = 0;
-    for (const b of allBytes) total += b.length;
-    const merged = new Uint8Array(total);
+    let totalLen = 0;
+    for (const b of allBytes) totalLen += b.length;
+    const merged = new Uint8Array(totalLen);
     let off = 0;
     for (const b of allBytes) { merged.set(b, off); off += b.length; }
 
-    // Try to peel off the OPTR header (filename + size + sha256). On failure,
-    // fall back to "raw" mode so we stay interoperable with C/Java pipelines.
     const unwrapped = await unwrapHeader(merged);
     let outBytes, downloadName, hashLine;
     if (unwrapped.hasHeader && !unwrapped.error) {
@@ -1923,18 +635,13 @@ decGo.addEventListener('click', async () => {
         : '');
 
     const blob = new Blob([outBytes], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
+    a.href = URL.createObjectURL(blob);
     a.download = downloadName;
     a.textContent = '↓ Download decoded file';
     a.className = 'primary';
-    a.style.display = 'inline-block';
-    a.style.padding = '10px 16px';
-    a.style.background = 'var(--accent)';
-    a.style.color = 'white';
-    a.style.borderRadius = '4px';
-    a.style.textDecoration = 'none';
+    a.style.cssText = 'display:inline-block; padding:10px 16px; background:var(--accent); ' +
+                      'color:white; border-radius:4px; text-decoration:none;';
     decOutput.appendChild(a);
   } catch (err) {
     decStatus.innerHTML = `<span class="bad">Decode failed: ${err.message}</span>`;
@@ -1944,7 +651,6 @@ decGo.addEventListener('click', async () => {
   }
 });
 
-// Signal that the app is ready (used by the test harness).
 window.OPTAR_READY = true;
 </script>
 </body>

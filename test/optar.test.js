@@ -162,7 +162,7 @@ test('encode-decode round-trip (clean, 1 KB random)', async (page) => {
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
     const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'test' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'test' });
     const ctx = canvas.getContext('2d');
     const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const dec = OPTAR.decodeImageData(id);
@@ -181,7 +181,7 @@ test('encode-decode round-trip (noisy salt-pepper)', async (page) => {
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
     const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'noisy' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'noisy' });
     const ctx = canvas.getContext('2d');
     const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = id.data;
@@ -218,7 +218,7 @@ test('multi-page round-trip (400 KB)', async (page) => {
     const decoded = new Uint8Array(N);
     let off = 0, irreparable = 0;
     for (const cells of enc.pages) {
-      const canvas = OPTAR.renderPageToCanvas(cells, enc.geom, 1, { label: 'page' });
+      const canvas = OPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, { label: 'page' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       const dec = OPTAR.decodeImageData(id);
       irreparable += dec.stats.errors[4];
@@ -243,7 +243,7 @@ test('settings: smaller page (XCROSSES=33, YCROSSES=47)', async (page) => {
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = i;
     const enc = OPTAR.encodeBytes(input, settings);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 't' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 't' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const dec = OPTAR.decodeImageData(id, settings);
     let mm = 0;
@@ -264,7 +264,7 @@ test('edge case: 1-byte file', async (page) => {
   const r = await page.evaluate(() => {
     const input = new Uint8Array([0xa5]);
     const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'x' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'x' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const dec = OPTAR.decodeImageData(id);
     return { first: dec.bytes[0], irreparable: dec.stats.errors[4] };
@@ -301,7 +301,7 @@ test('scale=3 round-trip (UI default)', async (page) => {
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 13 + 7) & 0xff;
     const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 3, { label: 'scale3' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 3, { label: 'scale3' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const dec = OPTAR.decodeImageData(id);
     let mm = 0;
@@ -369,7 +369,7 @@ test('header: end-to-end via encode/decode preserves filename + hash', async (pa
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
     const wrapped = await OPTAR.wrapWithHeader(input, 'recovered.png');
     const enc = OPTAR.encodeBytes(wrapped);
-    const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'h' });
+    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'h' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
     const dec = OPTAR.decodeImageData(id);
     const u = await OPTAR.unwrapHeader(dec.bytes);

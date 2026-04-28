@@ -47,7 +47,7 @@ function sha256(buf) { return crypto.createHash('sha256').update(buf).digest('he
     const result = OPTAR.encodeBytes(wrapped, { xcrosses: 65, ycrosses: 93 });
     const pngs = [];
     for (let i = 0; i < result.pages.length; i++) {
-      const canvas = OPTAR.renderPageToCanvas(
+      const canvas = OPTAR_RENDER.renderPageToCanvas(
         result.pages[i], result.geom, 1,
         { label: OPTAR.buildFormatString(result.geom, i + 1, result.pages.length, 'hash-test') }
       );

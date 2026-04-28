@@ -63,7 +63,7 @@ function makeInput(N) {
 function encodeAtScale(input, scale, settings) {
   settings = settings || { xcrosses: 33, ycrosses: 47 }; // smaller page = faster test
   const enc = OPTAR.encodeBytes(input, settings);
-  const canvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'parity' });
+  const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'parity' });
   return { enc, canvas };
 }
 function compare(decBytes, input) {

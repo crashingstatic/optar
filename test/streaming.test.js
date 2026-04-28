@@ -69,7 +69,7 @@ test('streaming: dedup + stitch from duplicated frame captures', async (page) =>
     const FRAMES_PER_PAGE = 6;
     const frames = [];
     for (let p = 0; p < enc.pages.length; p++) {
-      const canvas = OPTAR.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
+      const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       for (let f = 0; f < FRAMES_PER_PAGE; f++) frames.push(id);
     }
@@ -130,7 +130,7 @@ test('streaming: stitch handles noisy duplicate captures', async (page) => {
     const FRAMES_PER_PAGE = 5;
     const frames = [];
     for (let p = 0; p < enc.pages.length; p++) {
-      const canvas = OPTAR.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
+      const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
       for (let f = 0; f < FRAMES_PER_PAGE; f++) {
         frames.push(noisyImageData(canvas, 4));
       }
@@ -170,7 +170,7 @@ test('streaming: stitch rejects garbage / mid-transition frames', async (page) =
 
     // Build a synthetic frame sequence: a few good captures of page 1, a
     // garbage frame (random pixels), more good captures, garbage, etc.
-    const goodCanvas = OPTAR.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'g' });
+    const goodCanvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'g' });
     const goodId = goodCanvas.getContext('2d').getImageData(0, 0, goodCanvas.width, goodCanvas.height);
     function garbageId(seed) {
       // Deterministic LCG so the test isn't subject to Math.random flakiness.
