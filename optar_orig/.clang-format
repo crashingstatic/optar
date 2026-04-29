@@ -1,0 +1,52 @@
+---
+AlignAfterOpenBracket: DontAlign
+AlignConsecutiveMacros: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+AlignEscapedNewlines: Left
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllConstructorInitializersOnNextLine: false
+AllowShortFunctionsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterDefinitionReturnType: None
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBraces: Custom
+BraceWrapping:
+    AfterFunction: true
+    BeforeWhile: false
+ExperimentalAutoDetectBinPacking: false
+ForEachMacros: ["list_for_each", "list_for_each_entry", "list_for_each_safe", "list_for_each_entry_safe", "for_each_process"]
+IncludeBlocks: Regroup
+#Note: the main header file get priority 0 automatically
+#Groups the main eader in it's own group, then all <> includes, then quotes includes
+IncludeCategories:
+    - Regex:        '^<.*'
+      Priority: 2
+      SortPriority: 2
+      CaseSensitive: true
+    - Regex:        '"<.*'
+      Priority: 3
+      SortPriority: 3
+      CaseSensitive: true
+IndentPPDirectives: None
+IndentWidth: 4
+UseTab: Never
+MaxEmptyLinesToKeep: 1
+ContinuationIndentWidth: 4
+ColumnLimit: 120
+PenaltyBreakAssignment: 100
+PenaltyExcessCharacter: 5
+PenaltyReturnTypeOnItsOwnLine: 200
+PenaltyBreakBeforeFirstCallParameter: 10
+PointerAlignment: Left
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeCaseColon: false
+SpaceBeforeParens: ControlStatementsExceptForEachMacros
+SpacesInConditionalStatement: false
+SpaceInEmptyParentheses: false
+SpacesInSquareBrackets: false
+SpacesInParentheses: false
+ReflowComments: true

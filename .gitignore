@@ -1,4 +1,6 @@
-optar_orig/
+*.o
+optar_orig/optar
+optar_orig/unoptar
 .claude
 .class
 test/node_modules/
