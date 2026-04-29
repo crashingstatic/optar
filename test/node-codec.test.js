@@ -126,6 +126,71 @@ test('multi-page round-trip in Node (state-threaded across pages)', async () => 
   assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0);
 });
 
+test('CRC pass on clean encode→decode round-trip', async () => {
+  const settings = { xcrosses: 65, ycrosses: 93 };  // default A4
+  const N = 1024;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'crc-test.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  assertEqual(enc.fecOrder, 11, 'encoder should default to FEC_ORDER=11 (CRC)');
+
+  const dec = optar.decodeImageData(cellsToImageData(enc.pages[0], enc.geom), settings);
+  assertEqual(dec.fecOrder, 11);
+  assertEqual(dec.stats.crcOk, true, 'CRC must verify on a clean encode');
+  assertEqual(dec.stats.errors[4], 0);
+  // sanity: stored CRC matches computed
+  assertEqual(typeof dec.stats.storedCRC, 'number');
+  assertEqual(dec.stats.storedCRC, dec.stats.computedCRC);
+});
+
+test('CRC fails when a data codeword is flipped', async () => {
+  const settings = { xcrosses: 65, ycrosses: 93 };
+  const N = 1024;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'corrupt.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  // Flip enough bits inside one user codeword's channel positions to push it
+  // into BCH miscorrection territory. We aim at the cells of codeword 0:
+  // bit b of codeword 0 lives at seq = b * FEC_SYMS, mapped via seq2xy.
+  const cells = enc.pages[0];
+  // Flip 4 channel bits of codeword 0 — exceeds BCH t=3 so the decoder
+  // miscorrects to a *different* valid codeword. CRC catches it.
+  for (let b = 0; b < 4; b++) {
+    const seq = 0 + b * enc.geom.FEC_SYMS;
+    const xy = optar.seq2xy(enc.geom, seq);
+    const px = xy[0] + optar.BORDER;
+    const py = xy[1] + optar.BORDER;
+    cells[px + py * enc.geom.WIDTH] ^= 0xff;
+  }
+
+  const dec = optar.decodeImageData(cellsToImageData(cells, enc.geom), settings);
+  assertEqual(dec.stats.crcOk, false, 'CRC must catch the miscorrection');
+});
+
+test('legacy FEC_ORDER=10 round-trip (no CRC) still works', async () => {
+  const settings = { xcrosses: 65, ycrosses: 93, fecOrder: 10 };
+  const N = 256;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'legacy.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  assertEqual(enc.fecOrder, 10);
+
+  const dec = optar.decodeImageData(cellsToImageData(enc.pages[0], enc.geom), settings);
+  assertEqual(dec.fecOrder, 10);
+  assertEqual(dec.stats.crcOk, null, 'legacy mode reports no CRC verdict');
+  assertEqual(dec.stats.errors[4], 0);
+
+  const u = await optar.unwrapHeader(dec.bytes);
+  assert(u.hashOk, 'legacy mode still verifies the OPTR SHA-256');
+  assertEqual(Buffer.compare(Buffer.from(u.body), input), 0);
+});
+
 test('stitchFrames works in Node without a browser', async () => {
   const settings = { xcrosses: 33, ycrosses: 47 };
   const N = 1024;

@@ -167,7 +167,7 @@
     </div>
     <div class="field">
       <label for="dec-format">Format string</label>
-      <input type="text" id="dec-format" value="0-65-93-24-3-10-2-24" size="22">
+      <input type="text" id="dec-format" value="0-65-93-24-3-11-2-24" size="22">
     </div>
     <button class="primary" id="dec-go" disabled>Decode</button>
   </div>
@@ -571,6 +571,12 @@ decGo.addEventListener('click', async () => {
         for (let k = 0; k < 5; k++) aggStats[k] += stitched.stats.errors[k];
 
         const stat = document.createElement('div');
+        const crcBadge =
+          (stitched.stats.crcPagesOk || stitched.stats.crcPagesFail)
+            ? `<span class="stat ${stitched.stats.crcPagesFail ? 'bad' : 'ok'}">` +
+              `CRC ${stitched.stats.crcPagesOk}/${stitched.stats.crcPagesOk + stitched.stats.crcPagesFail}` +
+              `</span>`
+            : '';
         stat.innerHTML = `<strong>${file.name}</strong> (video, ${duration.toFixed(1)}s): ` +
           `${stitched.unique} unique page${stitched.unique === 1 ? '' : 's'} ` +
           `from ${stitched.framesIn} frames ` +
@@ -578,7 +584,8 @@ decGo.addEventListener('click', async () => {
           `${stitched.failed} failed) &middot; ` +
           `<span class="stat ok">0-err ${stitched.stats.errors[0]}</span>` +
           `<span class="stat warn">3-err ${stitched.stats.errors[3]}</span>` +
-          `<span class="stat bad">irreparable ${stitched.stats.errors[4]}</span>`;
+          `<span class="stat bad">irreparable ${stitched.stats.errors[4]}</span>` +
+          crcBadge;
         decStats.appendChild(stat);
       } else {
         decStatus.textContent =
@@ -590,12 +597,19 @@ decGo.addEventListener('click', async () => {
 
         const stat = document.createElement('div');
         const total = result.stats.errors.reduce((a, b) => a + b, 0);
+        // CRC pass/fail badge — only shown when the format is FEC_ORDER=11.
+        const crcBadge = result.stats.crcOk === true
+          ? '<span class="stat ok">CRC ✓</span>'
+          : result.stats.crcOk === false
+            ? '<span class="stat bad">CRC ✗</span>'
+            : '';
         stat.innerHTML = `<strong>${file.name}</strong>: ` +
           `<span class="stat ok">0-err ${result.stats.errors[0]}</span>` +
           `<span class="stat">1-err ${result.stats.errors[1]}</span>` +
           `<span class="stat">2-err ${result.stats.errors[2]}</span>` +
           `<span class="stat warn">3-err ${result.stats.errors[3]}</span>` +
           `<span class="stat bad">irreparable ${result.stats.errors[4]}</span>` +
+          crcBadge +
           ` &middot; ${total} symbols`;
         decStats.appendChild(stat);
       }

@@ -43,7 +43,16 @@
   const TEXT_HEIGHT    = 24;
   const FEC_LARGEBITS  = 63;
   const FEC_SMALLBITS  = 45;
-  const FEC_ORDER      = 10;   // distinguishes BCH (10) from legacy Golay (1) / Hamming (2..5)
+  // FEC_ORDER values:
+  //   1     = Golay (legacy, original Optar)
+  //   2..5  = Hamming variants (legacy)
+  //   10    = BCH(63, 45, t=3), no per-page integrity check
+  //   11    = BCH(63, 45, t=3) + per-page CRC32 (last codeword of each page
+  //           holds CRC32 of the page's user-data bits)
+  // The encoder defaults to 11 (CRC); the decoder auto-branches on whatever
+  // FEC_ORDER is parsed out of the user's format string, so older pages
+  // (FEC_ORDER=10) and current pages (=11) both round-trip correctly.
+  const FEC_ORDER      = 11;
   const DEFAULT_SCALE  = 3;
 
   const BCH_M         = 6;
@@ -283,6 +292,62 @@
   }
 
   // ==========================================================================
+  // CRC32 (IEEE 802.3, reflected, init 0xFFFFFFFF, final XOR 0xFFFFFFFF).
+  //
+  // Used as an integrity check on each page's user-data bits, written into
+  // the last BCH codeword of every page when FEC_ORDER == 11. CRC catches
+  // BCH miscorrections — random bit patterns that BCH "fixes" to a
+  // syntactically-valid but wrong codeword (1-3 bit errors that look
+  // correctable but aren't).
+  // ==========================================================================
+  const CRC32_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let j = 0; j < 8; j++) {
+        c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      }
+      t[i] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      c = (c >>> 8) ^ CRC32_TABLE[(c ^ bytes[i]) & 0xFF];
+    }
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  // Streaming CRC over individual bits (MSB-first), with byte-level zero-pad
+  // at finalize. Lets us feed each codeword's 45 bits into the CRC as the
+  // encoder/decoder produces them, without materialising a large bit array.
+  function makeBitwiseCrc32() {
+    let accu = 0xFFFFFFFF;
+    let buf = 0;
+    let nbits = 0;
+    return {
+      consumeBit(bit) {
+        buf = ((buf << 1) | (bit & 1)) & 0xFF;
+        nbits++;
+        if (nbits === 8) {
+          accu = (accu >>> 8) ^ CRC32_TABLE[(accu ^ buf) & 0xFF];
+          buf = 0;
+          nbits = 0;
+        }
+      },
+      finalize() {
+        if (nbits > 0) {
+          const padded = (buf << (8 - nbits)) & 0xFF;
+          accu = (accu >>> 8) ^ CRC32_TABLE[(accu ^ padded) & 0xFF];
+        }
+        return (accu ^ 0xFFFFFFFF) >>> 0;
+      },
+    };
+  }
+
+  // ==========================================================================
   // Bit interleaver — exposed for tests / external integrations.
   // ==========================================================================
   function interleaveBits(codewords, fecSyms) {
@@ -354,10 +419,16 @@
   function encodeBytes(bytes, opts) {
     const xcrosses = (opts && opts.xcrosses) || 65;
     const ycrosses = (opts && opts.ycrosses) || 93;
+    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    const useCRC   = (fecOrder === 11);
     const geom = makeGeometry(xcrosses, ycrosses);
+    // Per-page user-codeword count: one slot reserved for the CRC32 codeword
+    // when CRC mode is on. Capacity drop is 1/FEC_SYMS ≈ 0.002% at A4.
+    const userSlotsPerPage = useCRC ? geom.FEC_SYMS - 1 : geom.FEC_SYMS;
+    const userBitsPerPage  = userSlotsPerPage * BCH_K;
 
     const totalBits = bytes.length * 8;
-    const expectedPages = Math.max(1, Math.ceil(totalBits / geom.NETBITS));
+    const expectedPages = Math.max(1, Math.ceil(totalBits / userBitsPerPage));
 
     const pages = [];
     let cells = createBlankPage(geom);
@@ -365,6 +436,7 @@
     let payloadAccu = 1n;
     const SENTINEL  = 1n << BigInt(BCH_K);
     const DATA_MASK = SENTINEL - 1n;
+    let crc = useCRC ? makeBitwiseCrc32() : null;
 
     function writeChannelBit(bit, seq) {
       const xy = seq2xy(geom, seq);
@@ -373,23 +445,50 @@
       cells[x + y * geom.WIDTH] = (bit & 1) ? 0x00 : 0xff;
     }
 
+    // Encode `data` (45-bit BigInt) into BCH and write its 63 channel bits
+    // to slot `slot` of the current page, interleaved across the FEC strips.
+    function writeCodewordToSlot(data, slot) {
+      const code = bchEncode(data);
+      for (let shift = BCH_N - 1; shift >= 0; shift--) {
+        const seq = slot + (BCH_N - 1 - shift) * geom.FEC_SYMS;
+        const cb  = Number((code >> BigInt(shift)) & 1n);
+        writeChannelBit(cb, seq);
+      }
+    }
+
+    // Finalise the current page — pad any unfilled user slots with zeros
+    // (so encoder/decoder feed the CRC the same number of bits), then write
+    // the CRC codeword into the last slot.
+    function endPage() {
+      if (useCRC) {
+        while (symbolIndex < geom.FEC_SYMS - 1) {
+          for (let s = 0; s < BCH_K; s++) crc.consumeBit(0);
+          symbolIndex++;
+        }
+        const crcValue = crc.finalize();
+        const crcData  = BigInt(crcValue >>> 0); // low 32 bits → 45-bit slot
+        writeCodewordToSlot(crcData, geom.FEC_SYMS - 1);
+        crc = makeBitwiseCrc32();
+      }
+      pages.push(cells);
+      cells = createBlankPage(geom);
+      symbolIndex = 0;
+    }
+
     function writePayloadBit(bit) {
       payloadAccu = (payloadAccu << 1n) | BigInt(bit & 1);
       if (payloadAccu & SENTINEL) {
         const data = payloadAccu & DATA_MASK;
-        const code = bchEncode(data);
-        if (symbolIndex >= geom.FEC_SYMS) {
-          pages.push(cells);
-          cells = createBlankPage(geom);
-          symbolIndex = 0;
+        // Page full of user codewords? Close it (writes CRC, rolls page).
+        if (symbolIndex >= userSlotsPerPage) endPage();
+        writeCodewordToSlot(data, symbolIndex);
+        if (useCRC) {
+          for (let s = BCH_K - 1; s >= 0; s--) {
+            crc.consumeBit(Number((data >> BigInt(s)) & 1n));
+          }
         }
-        for (let shift = BCH_N - 1; shift >= 0; shift--) {
-          const seq = symbolIndex + (BCH_N - 1 - shift) * geom.FEC_SYMS;
-          const cb = Number((code >> BigInt(shift)) & 1n);
-          writeChannelBit(cb, seq);
-        }
-        payloadAccu = 1n;
         symbolIndex++;
+        payloadAccu = 1n;
       }
     }
 
@@ -398,9 +497,9 @@
       for (let bit = 7; bit >= 0; bit--) writePayloadBit((b >>> bit) & 1);
     }
     for (let i = BCH_K - 1; i > 0; i--) writePayloadBit(0);
-    pages.push(cells);
+    endPage();
 
-    return { geom, pages, nPages: pages.length, expectedPages };
+    return { geom, pages, nPages: pages.length, expectedPages, fecOrder };
   }
 
   // ==========================================================================
@@ -646,7 +745,10 @@
   function decodeImageData(imgData, opts) {
     const xcrosses = (opts && opts.xcrosses) || 65;
     const ycrosses = (opts && opts.ycrosses) || 93;
+    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    const useCRC   = (fecOrder === 11);
     const geom = makeGeometry(xcrosses, ycrosses);
+    const userSlots = useCRC ? geom.FEC_SYMS - 1 : geom.FEC_SYMS;
 
     const W = imgData.width;
     const H = imgData.height;
@@ -660,29 +762,35 @@
     const cutlevels = sync.cutlevels;
 
     const errorStats = [0, 0, 0, 0, 0];
-    // Worst-case: NETBITS bits + up to 7 carry-in bits → ⌈(NETBITS+7)/8⌉
-    // bytes. For aligned configs the +1 slot stays unused.
     const out = new Uint8Array(Math.ceil((geom.NETBITS + 7) / 8));
     let outIndex = 0;
     const state = (opts && opts.state) || null;
     let payloadAccu = state ? state.payloadAccu : 1;
     const xy   = [0, 0];
     const xyc  = [0, 0, 0];
+    const crc  = useCRC ? makeBitwiseCrc32() : null;
 
-    for (let sym = 0; sym < geom.FEC_SYMS; sym++) {
+    function readCodeword(slot) {
       let received = 0n;
       for (let bit = 0; bit < BCH_N; bit++) {
-        const seq = sym + bit * geom.FEC_SYMS;
+        const seq = slot + bit * geom.FEC_SYMS;
         seq2xyInto(geom, seq, xy);
         bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
         const sample = getPixelInterp(gray, W, H, xyc[0], xyc[1]);
         received = (received << 1n) | (sample < xyc[2] ? 1n : 0n);
       }
-      const dec = bchDecode(received);
+      return bchDecode(received);
+    }
+
+    // User-data slots: emit decoded bits to the byte stream (state-threaded)
+    // and feed them into the CRC accumulator.
+    for (let sym = 0; sym < userSlots; sym++) {
+      const dec = readCodeword(sym);
       errorStats[dec.reparable ? Math.min(3, dec.errors) : 4]++;
       const dataBig = BigInt(dec.data);
       for (let shift = BCH_K - 1; shift >= 0; shift--) {
         const b = Number((dataBig >> BigInt(shift)) & 1n);
+        if (useCRC) crc.consumeBit(b);
         payloadAccu = ((payloadAccu << 1) | b) & 0x1ff;
         if (payloadAccu & 0x100) {
           out[outIndex++] = payloadAccu & 0xff;
@@ -692,9 +800,22 @@
     }
     if (state) state.payloadAccu = payloadAccu;
 
+    let crcOk = null, storedCRC = null, computedCRC = null;
+    if (useCRC) {
+      computedCRC = crc.finalize();
+      const crcDec = readCodeword(geom.FEC_SYMS - 1);
+      errorStats[crcDec.reparable ? Math.min(3, crcDec.errors) : 4]++;
+      // Stored CRC sits in the low 32 bits of the codeword's 45-bit data.
+      storedCRC = Number(BigInt(crcDec.data) & 0xFFFFFFFFn);
+      crcOk = (storedCRC === computedCRC) >>> 0 ? true : false;
+      // (the && coercion keeps it strictly boolean)
+      crcOk = storedCRC === computedCRC;
+    }
+
     return {
-      geom, bytes: out.subarray(0, outIndex), stats: { errors: errorStats },
-      corners, crosses, globalCut,
+      geom, bytes: out.subarray(0, outIndex),
+      stats: { errors: errorStats, crcOk, storedCRC, computedCRC },
+      fecOrder, corners, crosses, globalCut,
     };
   }
 
@@ -782,8 +903,12 @@
     if (parts.length >= 8) {
       const xcrosses = parseInt(parts[1], 10);
       const ycrosses = parseInt(parts[2], 10);
+      const fecOrder = parseInt(parts[5], 10);
       if (Number.isFinite(xcrosses) && Number.isFinite(ycrosses)) {
-        return { xcrosses, ycrosses };
+        return {
+          xcrosses, ycrosses,
+          fecOrder: Number.isFinite(fecOrder) ? fecOrder : FEC_ORDER,
+        };
       }
     }
     return null;
@@ -803,6 +928,7 @@
   async function stitchFrames(frames, opts) {
     const xcrosses = (opts && opts.xcrosses) || 65;
     const ycrosses = (opts && opts.ycrosses) || 93;
+    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
     const onProgress = opts && opts.onProgress;
 
     const seen = new Set();
@@ -813,7 +939,7 @@
       if (onProgress) onProgress(f, frames.length);
       let dec;
       try {
-        dec = decodeImageData(frames[f], { xcrosses, ycrosses });
+        dec = decodeImageData(frames[f], { xcrosses, ycrosses, fecOrder });
       } catch (_) { failed++; continue; }
 
       const e = dec.stats.errors;
@@ -822,6 +948,9 @@
       if (e[4] > totalSyms * 0.05 || nonzero > totalSyms * 0.5) {
         failed++; continue;
       }
+      // CRC mode? If the page's CRC32 doesn't match, the BCH must have
+      // miscorrected somewhere — drop the frame outright.
+      if (dec.stats.crcOk === false) { failed++; continue; }
       const distinct = new Set();
       const probeLen = Math.min(dec.bytes.length, 1024);
       for (let i = 0; i < probeLen; i++) {
@@ -842,11 +971,14 @@
     // State-threaded concat. For byte-aligned NETBITS this is a no-op.
     const state = { payloadAccu: 1 };
     const aggStats = [0, 0, 0, 0, 0];
+    let crcPagesOk = 0, crcPagesFail = 0;
     const chunks = [];
     let total = 0;
     for (const frame of uniqueFrames) {
-      const dec = decodeImageData(frame, { xcrosses, ycrosses, state });
+      const dec = decodeImageData(frame, { xcrosses, ycrosses, fecOrder, state });
       for (let k = 0; k < 5; k++) aggStats[k] += dec.stats.errors[k];
+      if      (dec.stats.crcOk === true)  crcPagesOk++;
+      else if (dec.stats.crcOk === false) crcPagesFail++;
       chunks.push(dec.bytes);
       total += dec.bytes.length;
     }
@@ -856,7 +988,7 @@
 
     return {
       bytes: merged,
-      stats: { errors: aggStats },
+      stats: { errors: aggStats, crcPagesOk, crcPagesFail },
       unique, dupes, failed,
       framesIn: frames.length,
     };
@@ -876,6 +1008,8 @@
     // BCH
     bchEncode, bchDecode, bchSyndromes, bchGfMul, bchGfDiv,
     BCH_GF_EXP, BCH_GF_LOG,
+    // CRC32
+    crc32, makeBitwiseCrc32,
     // Interleave
     interleaveBits, deinterleaveBits,
     // Page rendering (pure cells array — no canvas)
