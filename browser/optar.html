@@ -124,7 +124,13 @@
   @media print {
     body, .panel, .tabs, h1, .sub { background: white; padding: 0; margin: 0; border: 0; }
     body > *:not(#print-host) { display: none !important; }
-    #print-host { display: block !important; }
+    #print-host {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+    }
     #print-host canvas { display: block; }
     @page { margin: 0; }
   }
