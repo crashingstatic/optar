@@ -10,23 +10,17 @@ I have only tried using fit-to-screen (the main use case for video output), but 
 
 ---
 
-## 2. BUG: Center encoding box on page when printing
-
-Currently when attempting to print A4 or US-Letter, the box is aligned with the top-left corner which would make scanning the image back in difficult. Center the box left-right as well as top-down on the page when printing.
-
----
-
-## 3. BUG: Frozen Progress indicator when encoding multiple pages
+## 2. BUG: Frozen Progress indicator when encoding multiple pages
 Currently progress is indicated for uploading pages but on the second to last page, the progress "freezes" for up to several minutes. Place some indicator of progress that informs the user how much has been encoded and how much is left during that time.
 
 ---
 
-## 4. Gzip compression
+## 3. Gzip compression
 Add gzip compression to files before encoding and uncompress before decoding. This should be accomplished using only native javascript in the browser.
 
 ---
 
-## 5. Color encoding (additional option)
+## 4. Color encoding (additional option)
 
 Independent R/G/B channel encoding for **3× density** at the cost of needing
 a color printer + color scanner.
