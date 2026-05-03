@@ -250,6 +250,10 @@
     }
     // Trailing hold so the recorder catches the final page.
     await new Promise((res) => setTimeout(res, intervalMs * 2));
+    // Signal post-loop work — `recorder.stop()` + the muxer flush can take
+    // tens of seconds on long recordings, and without this the caller's
+    // status would stay frozen at "Recording page N / N".
+    if (onProgress) onProgress(canvases.length, canvases.length, 'finalizing');
     recorder.stop();
     stream.getTracks().forEach((t) => t.stop());
     await stopped;

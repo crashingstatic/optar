@@ -399,8 +399,16 @@ encGo.addEventListener('click', async () => {
 
     const labelBase = (encLabel.value || encSelectedFile.name).slice(0, 40);
     const allCanvases = [];
+    const encodedSummary = encInfo.textContent;
     for (let i = 0; i < enc.pages.length; i++) {
       const pageNumber = i + 1;
+      // Per-page progress + yield. Without the yield the browser can't
+      // paint between iterations, so the page list looked frozen on long
+      // multi-page renders.
+      encInfo.textContent =
+        `${encodedSummary} Rendering page ${pageNumber} / ${enc.nPages}…`;
+      await new Promise((r) => setTimeout(r, 0));
+
       const formatStr = buildFormatString(enc.geom, pageNumber, enc.nPages, labelBase);
       const canvas = renderPageToCanvas(enc.pages[i], enc.geom, settings.scale, { label: formatStr });
 
@@ -438,6 +446,7 @@ encGo.addEventListener('click', async () => {
       encPages.appendChild(card);
       allCanvases.push(canvas);
     }
+    encInfo.textContent = encodedSummary;
 
     // Add the "Download MP4" affordance after rendering all pages. Records
     // the page sequence into a video file the user can open in any browser
@@ -470,7 +479,11 @@ encGo.addEventListener('click', async () => {
           vidStatus.textContent = 'Recording...';
           const { blob, mimeType, durationS } = await recordPagesToVideo(allCanvases, {
             fps,
-            onProgress: (n, t) => { vidStatus.textContent = `Recording page ${n} / ${t}…`; },
+            onProgress: (n, t, phase) => {
+              vidStatus.textContent = phase === 'finalizing'
+                ? `Finalizing video (muxing ${t} frames)…`
+                : `Recording page ${n} / ${t}…`;
+            },
           });
           const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
           const a = document.createElement('a');
