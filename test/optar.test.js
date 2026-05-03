@@ -217,10 +217,13 @@ test('multi-page round-trip (400 KB)', async (page) => {
     const enc = OPTAR.encodeBytes(input);
     const decoded = new Uint8Array(N);
     let off = 0, irreparable = 0;
+    // Per-page user bits with CRC mode aren't byte-aligned, so the decoder
+    // needs a shared `state` to thread bit-fragments across pages.
+    const state = { payloadAccu: 1 };
     for (const cells of enc.pages) {
       const canvas = OPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, { label: 'page' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      const dec = OPTAR.decodeImageData(id);
+      const dec = OPTAR.decodeImageData(id, { state });
       irreparable += dec.stats.errors[4];
       const take = Math.min(N - off, dec.bytes.length);
       decoded.set(dec.bytes.subarray(0, take), off);
@@ -276,7 +279,9 @@ test('edge case: 1-byte file', async (page) => {
 test('edge case: file at exact page boundary', async (page) => {
   const r = await page.evaluate(() => {
     const geom = OPTAR.makeGeometry(65, 93);
-    const N = geom.NETBITS / 8;
+    // CRC mode reserves one BCH codeword per page for the CRC32 of the
+    // page's user-data bits; user capacity is (FEC_SYMS-1)*BCH_K bits.
+    const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8);
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 7) & 0xff;
     const enc = OPTAR.encodeBytes(input);
@@ -288,7 +293,8 @@ test('edge case: file at exact page boundary', async (page) => {
 test('edge case: one byte over page boundary spills to two pages', async (page) => {
   const r = await page.evaluate(() => {
     const geom = OPTAR.makeGeometry(65, 93);
-    const input = new Uint8Array(geom.NETBITS / 8 + 1);
+    const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) + 1;
+    const input = new Uint8Array(N);
     input[input.length - 1] = 0xee;
     return { pages: OPTAR.encodeBytes(input).nPages };
   });
@@ -388,7 +394,7 @@ test('format string round-trip', async (page) => {
     const f = OPTAR.buildFormatString(geom, 1, 1, 'foo');
     return { f, parsed: OPTAR.parseFormatString(f) };
   });
-  assert(r.f.startsWith('0-65-93-24-3-10-2-24'), `unexpected format: ${r.f}`);
+  assert(r.f.startsWith('0-65-93-24-3-11-2-24'), `unexpected format: ${r.f}`);
   assertEqual(r.parsed.xcrosses, 65);
   assertEqual(r.parsed.ycrosses, 93);
 });

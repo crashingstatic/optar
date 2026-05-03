@@ -29,28 +29,11 @@ Open questions:
   enough?" calibration page (encode a known pattern, decode, report
   per-channel error rate).
 
+
 ---
 
-## 2. Drag-and-drop file input + progress bar
+## 2. Center encoding box on page when printing
 
-Two related UX improvements:
+Currently when attempting to print A4 or US-Letter, the box is aligned with the top-left corner which would make scanning the image back in difficult. Center the box left-right as well as top-down on the page when printing.
 
-**Drag-and-drop:**
-- Encode tab: dashed border on the panel when a file is dragged over.
-- On drop, populate the file input.
-- Same on the Decode tab for multi-image drops.
-
-**Progress bar:**
-- Encoding a 200 KB file currently freezes the tab for ~2s. Multi-page
-  encodes (1 MB+) freeze for 10+ seconds.
-- Move the encode loop into a `Web Worker`. Yield page-by-page progress to
-  the main thread; render the progress bar.
-- Same for decode (worker per page, parallel-safe since each page is
-  independent).
-- Bonus: show a live preview of the page being encoded.
-
-Implementation hints:
-- `OffscreenCanvas` lets the worker render directly without postMessage'ing
-  raw pixel data back.
-- The codec functions are already pure; porting them into a worker is a
-  matter of wrapping the script in a `Blob` URL or splitting the file.
+---

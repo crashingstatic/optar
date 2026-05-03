@@ -42,7 +42,7 @@ test('codec loads as a CommonJS module', () => {
   }
   assertEqual(optar.BCH_N, 63);
   assertEqual(optar.BCH_K, 45);
-  assertEqual(optar.FEC_ORDER, 10);
+  assertEqual(optar.FEC_ORDER, 11);
 });
 
 test('BCH round-trip: 1000 random 45-bit data words decode cleanly', () => {
