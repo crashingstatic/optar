@@ -190,18 +190,39 @@
   }
 
   // --------------------------------------------------------------------------
-  // Record a sequence of page canvases into a video Blob (MP4 if supported,
-  // else WebM). The output plays in any modern browser / native player; the
-  // decoder ingests it via extractVideoFrames + OPTAR.stitchFrames.
+  // Record a sequence of page canvases into a video Blob (WebM/VP8 by default).
+  //
+  // Use case: the user downloads the video, plays it on screen, and a phone
+  // records the screen. The phone's H.264 encoder then captures each page
+  // through its own pipeline. Either way, BCH cells are single-pixel patterns
+  // that any video codec destroys via inter-frame motion estimation unless
+  // each page is encoded as a fresh keyframe.
+  //
+  // We force keyframes by inserting an alternating black/white flash sequence
+  // between pages: solid colors are so different from each other and from a
+  // BCH page that the codec scene-cut detection emits a fresh I-frame for
+  // the next page, breaking inter-frame prediction. A single black flash is
+  // not enough — VP8 will still cross-reference the previous page through
+  // the flash. Multiple alternating flashes are.
+  //
+  // Defaults: VP8 at 1 page/sec with a 200 ms 4-step flash sequence between
+  // pages. Slow but reliable: empirically 7/7 pages decode cleanly at fit-
+  // to-screen geometries (X/Y in 20–50). MP4/H.264 is also supported but
+  // smears even with flashes; prefer VP8 unless WebM is unavailable.
   // --------------------------------------------------------------------------
   async function recordPagesToVideo(canvases, opts) {
     if (!canvases.length) throw new Error('no pages to record');
     if (typeof MediaRecorder === 'undefined') {
       throw new Error('MediaRecorder is not available in this browser');
     }
-    const fps = (opts && opts.fps) || 10;
-    const onProgress = opts && opts.onProgress;
-    const intervalMs = 1000 / fps;
+    const pps         = (opts && opts.fps) || 1;
+    const flashCycles = (opts && opts.flashCycles) || 4;
+    const flashMs     = (opts && opts.flashMs) || 50;
+    const onProgress  = opts && opts.onProgress;
+    // Reserve flash time first; what's left in the period is page hold.
+    const flashTotalMs = flashCycles * flashMs;
+    const periodMs     = Math.max(1000 / pps, flashTotalMs + 400);
+    const pageMs       = periodMs - flashTotalMs;
 
     // A playback canvas sized to the first page (all pages share dimensions
     // because they come from the same encode).
@@ -214,14 +235,15 @@
     ctx.fillStyle = 'white';
     ctx.fillRect(0, 0, W, H);
 
-    // Prefer MP4 (carries proper duration metadata so the decoder's seek-based
-    // path works); fall back to WebM.
+    // Prefer VP8: H.264 still smears single-pixel cells even with flashes
+    // between pages (motion-estimation artefacts persist past scene cuts).
+    // VP8 honours the scene cuts and emits clean keyframes per page.
     const candidates = [
+      'video/webm;codecs=vp8',
+      'video/webm;codecs=vp9',
+      'video/webm',
       'video/mp4;codecs=avc1.42E01E',
       'video/mp4',
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm',
     ];
     let mimeType = (opts && opts.mimeType) || '';
     if (!mimeType) {
@@ -231,25 +253,46 @@
     }
     if (!mimeType) throw new Error('no supported MediaRecorder MIME type');
 
-    const stream = playback.captureStream(fps * 2);
+    // Bitrate scales with canvas area: VP8 at 8 Mbps starves ~1 Mpix
+    // canvases (fit-to-screen at the upper end of XCROSSES/YCROSSES) and
+    // smears cells past BCH's recovery limit. ~6 bits per pixel-second at
+    // 30 captureStream fps gives the encoder enough budget for a fresh
+    // keyframe per page.
+    const defaultBps = Math.max(8_000_000, Math.round(W * H * 6 * 30));
+    const stream = playback.captureStream(30);
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: (opts && opts.bitsPerSecond) || 8_000_000,
+      videoBitsPerSecond: (opts && opts.bitsPerSecond) || defaultBps,
     });
     const chunks = [];
     recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
     const stopped = new Promise((res) => { recorder.onstop = () => res(); });
 
+    function fillFlash(step) {
+      ctx.fillStyle = (step & 1) ? 'white' : 'black';
+      ctx.fillRect(0, 0, W, H);
+    }
+
     recorder.start(100); // emit chunks every 100 ms so a long recording streams
     for (let i = 0; i < canvases.length; i++) {
+      // Alternating black/white flash forces VP8 scene-cut and breaks
+      // cross-page inter-frame prediction.
+      for (let f = 0; f < flashCycles; f++) {
+        fillFlash(f);
+        await new Promise((res) => setTimeout(res, flashMs));
+      }
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, W, H);
       ctx.drawImage(canvases[i], 0, 0);
       if (onProgress) onProgress(i + 1, canvases.length);
-      await new Promise((res) => setTimeout(res, intervalMs));
+      await new Promise((res) => setTimeout(res, pageMs));
     }
-    // Trailing hold so the recorder catches the final page.
-    await new Promise((res) => setTimeout(res, intervalMs * 2));
+    // Trailing flash so the final page is followed by clean transitions
+    // and the recorder catches the last page in full.
+    for (let f = 0; f < flashCycles; f++) {
+      fillFlash(f);
+      await new Promise((res) => setTimeout(res, flashMs));
+    }
     // Signal post-loop work — `recorder.stop()` + the muxer flush can take
     // tens of seconds on long recordings, and without this the caller's
     // status would stay frozen at "Recording page N / N".
@@ -258,7 +301,8 @@
     stream.getTracks().forEach((t) => t.stop());
     await stopped;
 
-    return { blob: new Blob(chunks, { type: mimeType }), mimeType, durationS: canvases.length / fps };
+    const durationS = (canvases.length * periodMs + flashTotalMs) / 1000;
+    return { blob: new Blob(chunks, { type: mimeType }), mimeType, durationS };
   }
 
   window.OPTAR_RENDER = {

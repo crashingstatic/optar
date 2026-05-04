@@ -5,37 +5,12 @@ when ready.
 
 ---
 
-## 1. BUG: MP4 encoding/decoding gets corrupted
-I have only tried using fit-to-screen (the main use case for video output), but the number of frames do not match the number of encoded pages (98 frames versus 92 pages). Unsurprisingly, the round-trip test failed.
-
-**Repro:** [test/fit-to-screen-video.test.js](test/fit-to-screen-video.test.js)
-samples random fit-to-screen geometries and round-trips
-test/test_files/test-*.bin through encode → recordPagesToVideo →
-extractVideoFrames → stitch → unwrap. Every run currently fails.
-
-**Root cause:** `recordPagesToVideo` uses `MediaRecorder`, which emits
-H.264 / VP9 with default keyframe spacing (~1 s). Pages that fall between
-keyframes are P-frames whose motion-estimation drift smears the
-single-pixel BCH cells beyond what the BCH(63,45,t=3) code can correct;
-only the keyframe-aligned page of each GOP decodes cleanly. The decoder
-then sees `unique << nPages` and silently produces a truncated payload
-with all pages CRC-OK but the wrong SHA.
-
-**Fix sketch:** replace the `MediaRecorder` pipeline with a
-`WebCodecs VideoEncoder` that emits `{ keyFrame: true }` for every page,
-plus a minimal WebM/EBML muxer to write the resulting VP8/VP9 chunks to
-a playable file. Confirmed during diagnosis that
-`VideoEncoder({codec:'vp8'}) + keyFrame:true` round-trips the bits
-cleanly; the only remaining work is muxing into a container.
-
----
-
-## 2. Gzip compression
+## 1. Gzip compression
 Add gzip compression to files before encoding and uncompress before decoding. This should be accomplished using only native javascript in the browser.
 
 ---
 
-## 3. Color encoding (additional option)
+## 2. Color encoding (additional option)
 
 Independent R/G/B channel encoding for **3× density** at the cost of needing
 a color printer + color scanner.

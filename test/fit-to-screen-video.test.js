@@ -6,22 +6,25 @@
 // uses), extracts frames, stitches, unwraps, and compares SHA-256 against
 // the SHAs file shipped alongside the test inputs.
 //
-// Currently reproduces FTODO #1. Root cause uncovered while diagnosing:
-//   • MediaRecorder (used by recordPagesToVideo) emits H.264 / VP9 with
-//     keyframes only every ~1s. Pages between keyframes are P-frames whose
-//     motion-estimation drift smears the single-pixel BCH cells; only the
-//     keyframe-aligned page(s) of each GOP decode cleanly.
-//   • The frame-extractor then sees mostly junk plus 1–2 clean pages, so
-//     `unique << nPages` and the assembled payload misses entire pages —
-//     SHA-256 mismatch even though every recovered page passes per-page
-//     CRC. (Confirmed: WebCodecs VideoEncoder with `keyFrame: true` per
-//     frame and the VP8 codec round-trips 7/7 pages cleanly. The fix is
-//     to replace the MediaRecorder pipeline.)
+// Regression test for FTODO #1. Original failure mode: with a plain
+// page-after-page render, MediaRecorder's H.264/VP8/VP9 encoder
+// inter-frame-predicts each page from the previous one. The single-pixel
+// BCH cells are too high-frequency to survive the codec's motion-estimation
+// chain past the first keyframe, so most pages decoded as miscorrected
+// garbage and SHA-256 mismatched even when per-page CRC passed.
+//
+// Fix in recordPagesToVideo: insert an alternating black/white flash
+// sequence between every page (4 cycles × 50 ms by default). The flashes
+// are visually distinct enough that VP8's scene-cut detector emits a fresh
+// keyframe for each page, breaking the cross-page reference chain. VP8 is
+// preferred over H.264 because H.264 still smears even with flashes.
+// Default cadence dropped to 1 page/sec to give each page a clean hold
+// window in the recorded video.
 //
 // Run from /workspace/test:
 //   PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium ITERS=2 node fit-to-screen-video.test.js
 //
-// Env knobs: ITERS (per-file, default 2), FPS (recording rate, default 10),
+// Env knobs: ITERS (per-file, default 2), FPS (pps, default 1),
 // MIME, BPS (override mimeType / bitsPerSecond on the recorder).
 
 'use strict';
@@ -84,6 +87,10 @@ const FILES = [
   const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
     headless: 'new',
+    // 1 MB test file at fit-to-screen geometry yields 50+ pages; at 1 pps
+    // that's a ~50 s recording plus ~1500 frames to extract and decode in
+    // a single page.evaluate. Default 30 s protocolTimeout times out.
+    protocolTimeout: 600_000,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
            '--autoplay-policy=no-user-gesture-required'],
   });
