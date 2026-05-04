@@ -5,12 +5,7 @@ when ready.
 
 ---
 
-## 1. Gzip compression
-Add gzip compression to files before encoding and uncompress before decoding. This should be accomplished using only native javascript in the browser.
-
----
-
-## 2. Color encoding (additional option)
+## 1. Color encoding (additional option)
 
 Independent R/G/B channel encoding for **3× density** at the cost of needing
 a color printer + color scanner.

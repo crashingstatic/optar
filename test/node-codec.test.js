@@ -69,6 +69,66 @@ test('header wrap + unwrap round-trips bytes & filename in Node', async () => {
   assertEqual(u.filename, 'node-test.bin');
   assert(u.hashOk, 'SHA-256 must verify in Node');
   assertEqual(Buffer.compare(Buffer.from(u.body), input), 0);
+  // Random bytes are incompressible — encoder falls back to OPTR.
+  assertEqual(u.compressed, false, 'random input must take the OPTR path');
+});
+
+test('gzipBytes / gunzipBytes round-trip in Node', async () => {
+  const input = Buffer.from('hello world '.repeat(200));
+  const z = await optar.gzipBytes(input);
+  assert(z.length < input.length, 'compressible text must shrink');
+  const back = await optar.gunzipBytes(z);
+  assertEqual(Buffer.compare(Buffer.from(back), input), 0);
+});
+
+test('OPTZ wrap takes compressible payloads through the gzip path', async () => {
+  // Highly compressible: 4096 zeros (also ends in 0 — would historically
+  // bait the OPTR trim-trailing-zeros bug, here irrelevant since OPTZ
+  // uses an explicit length prefix).
+  const input = Buffer.alloc(4096, 0);
+  const wrapped = await optar.wrapWithHeader(input, 'zeros.bin');
+  const u = await optar.unwrapHeader(wrapped);
+  assert(u.hasHeader);
+  assertEqual(u.compressed, true, 'all-zeros payload must use OPTZ');
+  assert(wrapped.length < input.length, 'OPTZ payload must be smaller than the input');
+  assert(u.hashOk, 'SHA-256 (over uncompressed) must verify');
+  assertEqual(u.filename, 'zeros.bin');
+  assertEqual(u.body.length, input.length);
+  assertEqual(Buffer.compare(Buffer.from(u.body), input), 0);
+});
+
+test('OPTZ survives BCH-padding zeros after the explicit length', async () => {
+  // Build a wrapped OPTZ payload, then append 200 zero bytes (mimicking
+  // the per-page zero pad the BCH layer prepends to incomplete pages).
+  // unwrapHeader must ignore them via the explicit length prefix.
+  const input = Buffer.from('the quick brown fox '.repeat(50));
+  const wrapped = await optar.wrapWithHeader(input, 'pad.txt');
+  const padded = Buffer.concat([Buffer.from(wrapped), Buffer.alloc(200, 0)]);
+  const u = await optar.unwrapHeader(new Uint8Array(padded));
+  assert(u.compressed === true);
+  assert(u.hashOk, 'SHA-256 must verify even with trailing zero padding');
+  assertEqual(Buffer.compare(Buffer.from(u.body), input), 0);
+});
+
+test('OPTR (legacy) payloads still decode after the OPTZ feature lands', async () => {
+  // Hand-craft an OPTR-formatted payload — older optar prints/files must
+  // still round-trip through the new unwrapHeader.
+  const fileBytes = Buffer.from('legacy bytes — OPTR forever\n');
+  const digest = await optar.sha256Bytes(fileBytes);
+  const name = Buffer.from('legacy.txt');
+  const optr = Buffer.concat([
+    Buffer.from(optar.OPTAR_HEADER_MAGIC),
+    Buffer.from(digest),
+    name,
+    Buffer.from([0]),
+    fileBytes,
+  ]);
+  const u = await optar.unwrapHeader(new Uint8Array(optr));
+  assert(u.hasHeader);
+  assertEqual(u.compressed, false);
+  assert(u.hashOk);
+  assertEqual(u.filename, 'legacy.txt');
+  assertEqual(Buffer.compare(Buffer.from(u.body), fileBytes), 0);
 });
 
 test('end-to-end encode→decode in Node (no canvas, no browser)', async () => {

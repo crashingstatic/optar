@@ -323,26 +323,39 @@ test('scale=3 round-trip (UI default)', async (page) => {
 test('header: wrap/unwrap round-trip preserves bytes + filename + hash', async (page) => {
   const r = await page.evaluate(async () => {
     const N = 1024;
+    // Highly-compressible input: low-period LCG cycles through 256 values.
+    // Goes through the OPTZ (gzip) branch.
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 13 + 7) & 0xff;
     const wrapped = await OPTAR.wrapWithHeader(input, 'hello.bin');
     const u = await OPTAR.unwrapHeader(wrapped);
     let bodyMatch = u.body.length === N;
     for (let i = 0; bodyMatch && i < N; i++) if (u.body[i] !== input[i]) bodyMatch = false;
+    // Incompressible input: cryptographic-quality random. Falls back to OPTR.
+    const incompressible = new Uint8Array(N);
+    crypto.getRandomValues(incompressible);
+    const w2 = await OPTAR.wrapWithHeader(incompressible, 'hello.bin');
+    const u2 = await OPTAR.unwrapHeader(w2);
     return {
       hasHeader: u.hasHeader,
       filename: u.filename,
       hashOk: u.hashOk,
       bodyMatch,
-      headerOverhead: wrapped.length - input.length,
+      compressedFlag: u.compressed === true,
+      shrinkBytes: N - wrapped.length, // positive when gzip helped
+      incompressibleOverhead: w2.length - incompressible.length,
+      incompressibleCompressedFlag: u2.compressed === true,
     };
   });
   assert(r.hasHeader, 'unwrap must detect the magic');
   assertEqual(r.filename, 'hello.bin');
   assert(r.hashOk, 'embedded SHA-256 must verify');
   assert(r.bodyMatch, 'unwrapped body must match the input bytes');
-  // 4 magic + 32 sha + 9 ("hello.bin") + 1 NUL = 46
-  assertEqual(r.headerOverhead, 46);
+  assert(r.compressedFlag, 'compressible payload must use OPTZ');
+  assert(r.shrinkBytes > 0, 'OPTZ must produce a smaller payload than the input here');
+  // Incompressible bytes should fall back to OPTR (4 magic + 32 sha + 9 name + 1 NUL = 46).
+  assertEqual(r.incompressibleCompressedFlag, false, 'random input must use OPTR');
+  assertEqual(r.incompressibleOverhead, 46);
 });
 
 test('header: unwrap on raw bytes (no magic) → hasHeader=false', async (page) => {

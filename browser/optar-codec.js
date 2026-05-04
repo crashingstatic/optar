@@ -68,7 +68,8 @@
   const CROSS_TRIM     = 0.75;
   const FINESTEP       = 0.25;
 
-  const OPTAR_HEADER_MAGIC = [0x4f, 0x50, 0x54, 0x52];
+  const OPTAR_HEADER_MAGIC   = [0x4f, 0x50, 0x54, 0x52]; // "OPTR" — legacy uncompressed
+  const OPTAR_HEADER_MAGIC_Z = [0x4f, 0x50, 0x54, 0x5a]; // "OPTZ" — gzip + explicit length
 
   // ==========================================================================
   // Geometry.
@@ -822,11 +823,24 @@
   // ==========================================================================
   // Per-file payload header.
   //
-  //   "OPTR"   4 B  magic
-  //   sha256  32 B  digest of file-data
-  //   filename n B  UTF-8, NUL-terminated
-  //   file-data  …  the file bytes; trailing zero-byte FEC padding stripped
-  //                 at decode time and verified against the SHA-256.
+  // OPTR (legacy, uncompressed):
+  //   "OPTR"     4 B  magic
+  //   sha256    32 B  digest of file-data
+  //   filename   n B  UTF-8
+  //   NUL        1 B  filename terminator
+  //   file-data  …    bytes; trailing zero-byte FEC padding stripped at
+  //                   decode time and verified against the SHA-256.
+  //
+  // OPTZ (gzipped, explicit length — preferred when it shrinks the payload):
+  //   "OPTZ"     4 B  magic
+  //   sha256    32 B  digest of the *uncompressed* file-data
+  //   filename   n B  UTF-8
+  //   NUL        1 B  filename terminator
+  //   bodylen    4 B  uint32 LE length of the gzip stream that follows
+  //   gzip-data  …    raw gzip stream of length `bodylen`; any bytes after
+  //                   it (BCH-page zero padding) are ignored. The explicit
+  //                   length avoids the OPTR trim-trailing-zeros hazard,
+  //                   since gzip's ISIZE trailer often ends in 0x00.
   // ==========================================================================
   async function sha256Bytes(bytes) {
     if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
@@ -846,12 +860,88 @@
     return s;
   }
 
+  // gzipBytes / gunzipBytes — browser CompressionStream first, Node zlib fallback.
+  async function gzipBytes(bytes) {
+    if (typeof CompressionStream !== 'undefined') {
+      const cs = new CompressionStream('gzip');
+      const writer = cs.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const reader = cs.readable.getReader();
+      const chunks = [];
+      let total = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        total += value.length;
+      }
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
+      return out;
+    }
+    if (typeof require === 'function') {
+      const { gzipSync } = require('zlib');
+      return new Uint8Array(gzipSync(bytes));
+    }
+    throw new Error('no gzip implementation available');
+  }
+
+  async function gunzipBytes(bytes) {
+    if (typeof DecompressionStream !== 'undefined') {
+      const ds = new DecompressionStream('gzip');
+      const writer = ds.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      const reader = ds.readable.getReader();
+      const chunks = [];
+      let total = 0;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        total += value.length;
+      }
+      const out = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
+      return out;
+    }
+    if (typeof require === 'function') {
+      const { gunzipSync } = require('zlib');
+      return new Uint8Array(gunzipSync(bytes));
+    }
+    throw new Error('no gunzip implementation available');
+  }
+
   async function wrapWithHeader(fileBytes, filename) {
     const nameUtf8 = new TextEncoder().encode(filename || '');
     for (let i = 0; i < nameUtf8.length; i++) {
       if (nameUtf8[i] === 0) throw new Error('filename cannot contain a NUL byte');
     }
     const digest = await sha256Bytes(fileBytes);
+    const compressed = await gzipBytes(fileBytes);
+
+    // Use OPTZ only when gzip actually shrinks the payload (after accounting
+    // for the 4-byte length prefix). Already-compressed inputs (JPEG, MP4,
+    // .gz) fall back to OPTR so we don't waste page capacity.
+    const optzCost = 4 /* length field */ + compressed.length;
+    if (optzCost < fileBytes.length) {
+      const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + 4 + compressed.length);
+      let p = 0;
+      for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC_Z[i];
+      out.set(digest, p);   p += 32;
+      out.set(nameUtf8, p); p += nameUtf8.length;
+      out[p++] = 0;
+      const L = compressed.length;
+      out[p++] =  L        & 0xff;
+      out[p++] = (L >>> 8)  & 0xff;
+      out[p++] = (L >>> 16) & 0xff;
+      out[p++] = (L >>> 24) & 0xff;
+      out.set(compressed, p);
+      return out;
+    }
     const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + fileBytes.length);
     let p = 0;
     for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC[i];
@@ -865,11 +955,21 @@
   async function unwrapHeader(decodedBytes) {
     const minSize = 4 + 32 + 1;
     if (decodedBytes.length < minSize) return { hasHeader: false, body: decodedBytes };
+
+    let isGzip = false;
+    let magicOk = true;
     for (let i = 0; i < 4; i++) {
-      if (decodedBytes[i] !== OPTAR_HEADER_MAGIC[i]) {
-        return { hasHeader: false, body: decodedBytes };
-      }
+      if (decodedBytes[i] !== OPTAR_HEADER_MAGIC[i]) { magicOk = false; break; }
     }
+    if (!magicOk) {
+      magicOk = true;
+      for (let i = 0; i < 4; i++) {
+        if (decodedBytes[i] !== OPTAR_HEADER_MAGIC_Z[i]) { magicOk = false; break; }
+      }
+      if (magicOk) isGzip = true;
+    }
+    if (!magicOk) return { hasHeader: false, body: decodedBytes };
+
     const sha = decodedBytes.subarray(4, 36);
     let nameEnd = 36;
     while (nameEnd < decodedBytes.length && decodedBytes[nameEnd] !== 0) nameEnd++;
@@ -880,13 +980,45 @@
     const filename = new TextDecoder('utf-8', { fatal: false })
       .decode(decodedBytes.subarray(36, nameEnd));
     const dataStart = nameEnd + 1;
-    let dataEnd = decodedBytes.length;
-    while (dataEnd > dataStart && decodedBytes[dataEnd - 1] === 0) dataEnd--;
-    const body = decodedBytes.subarray(dataStart, dataEnd);
+
+    let body;
+    if (isGzip) {
+      if (dataStart + 4 > decodedBytes.length) {
+        return { hasHeader: true, filename, sha256: hexBytes(sha),
+                 error: 'truncated OPTZ length prefix',
+                 body: new Uint8Array(0), hashOk: false };
+      }
+      const L = (decodedBytes[dataStart]            ) |
+                (decodedBytes[dataStart + 1] <<  8  ) |
+                (decodedBytes[dataStart + 2] << 16  ) |
+                (decodedBytes[dataStart + 3] << 24  );
+      const lengthU = L >>> 0;
+      const bodyStart = dataStart + 4;
+      const bodyEnd   = bodyStart + lengthU;
+      if (bodyEnd > decodedBytes.length) {
+        return { hasHeader: true, filename, sha256: hexBytes(sha),
+                 error: 'truncated OPTZ body (declared ' + lengthU + ' bytes)',
+                 body: new Uint8Array(0), hashOk: false };
+      }
+      const compressed = decodedBytes.subarray(bodyStart, bodyEnd);
+      try {
+        body = await gunzipBytes(compressed);
+      } catch (e) {
+        return { hasHeader: true, filename, sha256: hexBytes(sha),
+                 error: 'gunzip failed: ' + (e && e.message),
+                 body: new Uint8Array(0), hashOk: false };
+      }
+    } else {
+      let dataEnd = decodedBytes.length;
+      while (dataEnd > dataStart && decodedBytes[dataEnd - 1] === 0) dataEnd--;
+      body = decodedBytes.subarray(dataStart, dataEnd);
+    }
+
     const computed = await sha256Bytes(body);
     let hashOk = true;
     for (let i = 0; i < 32; i++) if (computed[i] !== sha[i]) { hashOk = false; break; }
-    return { hasHeader: true, filename, sha256: hexBytes(sha), body, hashOk };
+    return { hasHeader: true, filename, sha256: hexBytes(sha), body, hashOk,
+             compressed: isGzip };
   }
 
   // ==========================================================================
@@ -1002,7 +1134,7 @@
     BORDER, CHALF, CPITCH, TEXT_HEIGHT, FEC_LARGEBITS, FEC_SMALLBITS, FEC_ORDER,
     DEFAULT_SCALE,
     BCH_M, BCH_N, BCH_K, BCH_T, BCH_PARITY, BCH_GEN,
-    OPTAR_HEADER_MAGIC,
+    OPTAR_HEADER_MAGIC, OPTAR_HEADER_MAGIC_Z,
     // Geometry
     makeGeometry, seq2xy, seq2xyInto,
     // BCH
@@ -1017,7 +1149,7 @@
     // Pipelines
     encodeBytes, decodeImageData,
     // Header
-    sha256Bytes, hexBytes, wrapWithHeader, unwrapHeader,
+    sha256Bytes, hexBytes, gzipBytes, gunzipBytes, wrapWithHeader, unwrapHeader,
     // Format string
     buildFormatString, parseFormatString,
     // Streaming-mode stitch

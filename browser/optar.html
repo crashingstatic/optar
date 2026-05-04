@@ -393,8 +393,17 @@ encGo.addEventListener('click', async () => {
     const wrapped = await wrapWithHeader(fileBytes, encSelectedFile.name);
     const enc = encodeBytes(wrapped, settings);
 
+    // wrapWithHeader emits OPTZ (gzip + 4-byte length prefix + 41-byte
+    // header) when it shrinks the payload, OPTR (uncompressed + 46-byte
+    // header) otherwise. Show both states explicitly.
+    const overhead = wrapped.length - fileBytes.length;
+    const compressed = overhead < 0;
+    const overheadDesc = compressed
+      ? `gzip saved ${(-overhead).toLocaleString()} bytes ` +
+        `(${(100 * (-overhead) / fileBytes.length).toFixed(1)}%)`
+      : `+ ${overhead} header`;
     encInfo.textContent =
-      `Encoded ${fileBytes.length} bytes (+ ${wrapped.length - fileBytes.length} header) ` +
+      `Encoded ${fileBytes.length.toLocaleString()} bytes (${overheadDesc}) ` +
       `into ${enc.nPages} page${enc.nPages > 1 ? 's' : ''}.`;
 
     const labelBase = (encLabel.value || encSelectedFile.name).slice(0, 40);
