@@ -49,11 +49,21 @@
   //   10    = BCH(63, 45, t=3), no per-page integrity check
   //   11    = BCH(63, 45, t=3) + per-page CRC32 (last codeword of each page
   //           holds CRC32 of the page's user-data bits)
+  //   12    = BCH(63, 45, t=3) + per-page CRC32 + 5-color base-5 palette
+  //           (16 BCH bits packed into 7 cells, 5 states per cell: W/R/G/B/K)
   // The encoder defaults to 11 (CRC); the decoder auto-branches on whatever
   // FEC_ORDER is parsed out of the user's format string, so older pages
   // (FEC_ORDER=10) and current pages (=11) both round-trip correctly.
   const FEC_ORDER      = 11;
   const DEFAULT_SCALE  = 3;
+
+  // 5-color palette: ids 0..4 (lightest → darkest, mirrors mono "0=light, 1=dark").
+  //   0=W (255,255,255)  1=R (255,0,0)  2=G (0,255,0)  3=B (0,0,255)  4=K (0,0,0)
+  const PALETTE_5COLOR   = [[255,255,255],[255,0,0],[0,255,0],[0,0,255],[0,0,0]];
+  const COLOR_CHUNK_BITS  = 16;   // bits per base-5 chunk
+  const COLOR_CHUNK_CELLS = 7;    // cells per chunk (5^7 = 78125 >= 2^16 = 65536)
+  const PATCH_W           = 16;   // calibration patch width in cells
+  const PATCH_H           = 20;   // calibration patch height (TEXT_HEIGHT-4, 2-cell border each side)
 
   const BCH_M         = 6;
   const BCH_N         = 63;
@@ -74,7 +84,8 @@
   // ==========================================================================
   // Geometry.
   // ==========================================================================
-  function makeGeometry(xcrosses, ycrosses) {
+  function makeGeometry(xcrosses, ycrosses, colorMode) {
+    colorMode = colorMode || 'mono';
     const DATA_WIDTH    = CPITCH * (xcrosses - 1) + 2 * CHALF;
     const DATA_HEIGHT   = CPITCH * (ycrosses - 1) + 2 * CHALF;
     const WIDTH         = 2 * BORDER + DATA_WIDTH;
@@ -89,8 +100,39 @@
     const REPHEIGHT     = NARROWHEIGHT + WIDEHEIGHT;
     const REPPIXELS     = WIDEPIXELS + NARROWPIXELS;
     const TOTALBITS     = REPPIXELS * (ycrosses - 1) + NARROWPIXELS;
-    const FEC_SYMS      = Math.floor(TOTALBITS / FEC_LARGEBITS);
-    const NETBITS       = FEC_SYMS * FEC_SMALLBITS;
+
+    let FEC_SYMS, NETBITS, patchCellPositions;
+    if (colorMode === '5color') {
+      if (WIDTH < 5 * PATCH_W + 80) {
+        throw new Error(
+          `Page too narrow for 5-color mode (WIDTH=${WIDTH} cells, need >= ${5 * PATCH_W + 80}). ` +
+          'Increase XCROSSES or use mono mode.'
+        );
+      }
+      // Each COLOR_CHUNK_CELLS cells carry COLOR_CHUNK_BITS BCH bits.
+      const chunksPerPage = Math.floor(TOTALBITS / COLOR_CHUNK_CELLS);
+      const colorBits = chunksPerPage * COLOR_CHUNK_BITS;
+      FEC_SYMS = Math.floor(colorBits / FEC_LARGEBITS);
+      NETBITS  = FEC_SYMS * FEC_SMALLBITS;
+
+      // Calibration patches: 5 patches at the right edge of the text strip.
+      // Each patch interior is PATCH_W x PATCH_H cells; surrounded by a 2-cell
+      // K border from the text-strip background fill.
+      const stripY = BORDER + DATA_HEIGHT;         // top of text strip (cell row)
+      const patchTop    = stripY + 2;              // 2-cell top border
+      const patchBottom = stripY + 2 + PATCH_H;   // exclusive
+      patchCellPositions = [];
+      for (let k = 0; k < 5; k++) {
+        const patchRight = WIDTH - 2 - k * (PATCH_W + 2);  // right edge of patch, exclusive
+        const patchLeft  = patchRight - PATCH_W;
+        patchCellPositions.unshift({ x0: patchLeft, y0: patchTop, x1: patchRight, y1: patchBottom });
+      }
+    } else {
+      FEC_SYMS = Math.floor(TOTALBITS / FEC_LARGEBITS);
+      NETBITS  = FEC_SYMS * FEC_SMALLBITS;
+      patchCellPositions = null;
+    }
+
     return {
       xcrosses, ycrosses,
       DATA_WIDTH, DATA_HEIGHT, WIDTH, HEIGHT,
@@ -98,6 +140,7 @@
       WIDEHEIGHT, WIDEWIDTH, WIDEPIXELS,
       REPHEIGHT, REPPIXELS, TOTALBITS,
       FEC_SYMS, NETBITS,
+      colorMode, patchCellPositions,
     };
   }
 
@@ -379,38 +422,56 @@
   // ==========================================================================
   // Page rendering — Uint8Array of 1 byte per cell (0=black, 0xff=white).
   // ==========================================================================
-  function drawCross(cells, stride, x, y) {
+  // Draw alignment cross. In mono mode uses raw pixel bytes (0x00/0xff).
+  // In 5-color mode uses palette ids (4=K, 0=W).
+  function drawCross(cells, stride, x, y, black, white) {
     for (let r = 0; r < CHALF; r++) {
       const row = (y + r) * stride + x;
-      cells.fill(0x00, row, row + CHALF);
-      cells.fill(0xff, row + CHALF, row + 2 * CHALF);
+      cells.fill(black, row, row + CHALF);
+      cells.fill(white, row + CHALF, row + 2 * CHALF);
       const row2 = row + CHALF * stride;
-      cells.fill(0xff, row2, row2 + CHALF);
-      cells.fill(0x00, row2 + CHALF, row2 + 2 * CHALF);
+      cells.fill(white, row2, row2 + CHALF);
+      cells.fill(black, row2 + CHALF, row2 + 2 * CHALF);
     }
   }
 
   function createBlankPage(geom) {
     const cells = new Uint8Array(geom.WIDTH * geom.HEIGHT);
-    cells.fill(0xff);
-    cells.fill(0x00, 0, BORDER * geom.WIDTH);
+    const use5 = (geom.colorMode === '5color');
+    const BG    = use5 ? 0    : 0xff;   // page interior background (W=0 or white=0xff)
+    const BLACK = use5 ? 4    : 0x00;   // border / text-strip / cross-black
+    const WHITE = use5 ? 0    : 0xff;   // cross-white (same as BG)
+
+    cells.fill(BG);
+    cells.fill(BLACK, 0, BORDER * geom.WIDTH);
     for (let y = BORDER; y < BORDER + geom.DATA_HEIGHT; y++) {
       const row = y * geom.WIDTH;
-      cells.fill(0x00, row, row + BORDER);
-      cells.fill(0x00, row + geom.WIDTH - BORDER, row + geom.WIDTH);
+      cells.fill(BLACK, row, row + BORDER);
+      cells.fill(BLACK, row + geom.WIDTH - BORDER, row + geom.WIDTH);
     }
     const textStart = (BORDER + geom.DATA_HEIGHT) * geom.WIDTH;
-    cells.fill(0x00, textStart, textStart + TEXT_HEIGHT * geom.WIDTH);
+    cells.fill(BLACK, textStart, textStart + TEXT_HEIGHT * geom.WIDTH);
     const bottom = (BORDER + geom.DATA_HEIGHT + TEXT_HEIGHT) * geom.WIDTH;
-    cells.fill(0x00, bottom, bottom + BORDER * geom.WIDTH);
+    cells.fill(BLACK, bottom, bottom + BORDER * geom.WIDTH);
 
     const maxY = geom.HEIGHT - TEXT_HEIGHT - BORDER - 2 * CHALF;
     const maxX = geom.WIDTH  - BORDER - 2 * CHALF;
     for (let y = BORDER; y <= maxY; y += CPITCH) {
       for (let x = BORDER; x <= maxX; x += CPITCH) {
-        drawCross(cells, geom.WIDTH, x, y);
+        drawCross(cells, geom.WIDTH, x, y, BLACK, WHITE);
       }
     }
+
+    // Paint 5-color calibration patches in the text strip (right edge).
+    if (use5 && geom.patchCellPositions) {
+      for (let k = 0; k < 5; k++) {
+        const p = geom.patchCellPositions[k];
+        for (let py = p.y0; py < p.y1; py++) {
+          cells.fill(k, py * geom.WIDTH + p.x0, py * geom.WIDTH + p.x1);
+        }
+      }
+    }
+
     return cells;
   }
 
@@ -418,11 +479,16 @@
   // Encoder pipeline: bytes → page-cell Uint8Arrays.
   // ==========================================================================
   function encodeBytes(bytes, opts) {
-    const xcrosses = (opts && opts.xcrosses) || 65;
-    const ycrosses = (opts && opts.ycrosses) || 93;
-    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
-    const useCRC   = (fecOrder === 11);
-    const geom = makeGeometry(xcrosses, ycrosses);
+    const xcrosses  = (opts && opts.xcrosses) || 65;
+    const ycrosses  = (opts && opts.ycrosses) || 93;
+    // Derive colorMode and fecOrder, cross-defaulting each from the other.
+    let colorMode = (opts && opts.colorMode) || 'mono';
+    let fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    if (fecOrder === 12)        colorMode = '5color';
+    if (colorMode === '5color') fecOrder  = 12;
+    const useColor = (colorMode === '5color');
+    const useCRC   = (fecOrder === 11 || fecOrder === 12);
+    const geom = makeGeometry(xcrosses, ycrosses, colorMode);
     // Per-page user-codeword count: one slot reserved for the CRC32 codeword
     // when CRC mode is on. Capacity drop is 1/FEC_SYMS ≈ 0.002% at A4.
     const userSlotsPerPage = useCRC ? geom.FEC_SYMS - 1 : geom.FEC_SYMS;
@@ -439,11 +505,48 @@
     const DATA_MASK = SENTINEL - 1n;
     let crc = useCRC ? makeBitwiseCrc32() : null;
 
+    // Color mode: bits arrive at scattered seq positions (interleaved by the
+    // BCH slot layout). We collect them into a flat buffer indexed by seq,
+    // then pack the full buffer into base-5 chunks at endPage() time.
+    // This preserves interleaving: chunk k covers seq k*16..(k+1)*16-1, which
+    // are bit 0 of codewords k*16..(k+1)*16-1 — one bit from each of 16
+    // different codewords — so a single misclassified chunk affects only 1 bit
+    // per codeword and BCH corrects each independently.
+    const colorBitBuf = useColor
+      ? new Uint8Array(geom.FEC_SYMS * BCH_N + COLOR_CHUNK_BITS) : null;
+
     function writeChannelBit(bit, seq) {
-      const xy = seq2xy(geom, seq);
-      const x = xy[0] + BORDER;
-      const y = xy[1] + BORDER;
-      cells[x + y * geom.WIDTH] = (bit & 1) ? 0x00 : 0xff;
+      if (useColor) {
+        colorBitBuf[seq] = bit & 1;
+      } else {
+        const xy = seq2xy(geom, seq);
+        const x = xy[0] + BORDER;
+        const y = xy[1] + BORDER;
+        cells[x + y * geom.WIDTH] = (bit & 1) ? 0x00 : 0xff;
+      }
+    }
+
+    function flushColorBitsToPage() {
+      // Pack colorBitBuf into base-5 chunks, writing class ids into cells.
+      const totalBCHBits = geom.FEC_SYMS * BCH_N;
+      const numChunks = Math.ceil(totalBCHBits / COLOR_CHUNK_BITS);
+      for (let ci = 0; ci < numChunks; ci++) {
+        let N = 0;
+        for (let b = 0; b < COLOR_CHUNK_BITS; b++) {
+          const bseq = ci * COLOR_CHUNK_BITS + b;
+          N = (N << 1) | (bseq < totalBCHBits ? colorBitBuf[bseq] : 0);
+        }
+        // Base-5-encode N (MSB-first) into 7 cells, LSDigit first.
+        for (let di = 0; di < COLOR_CHUNK_CELLS; di++) {
+          const classId = N % 5;
+          N = (N / 5) | 0;
+          const cellSeq = ci * COLOR_CHUNK_CELLS + di;
+          const xy = seq2xy(geom, cellSeq);
+          if (xy[0] >= 0) {
+            cells[(xy[0] + BORDER) + (xy[1] + BORDER) * geom.WIDTH] = classId;
+          }
+        }
+      }
     }
 
     // Encode `data` (45-bit BigInt) into BCH and write its 63 channel bits
@@ -470,6 +573,11 @@
         const crcData  = BigInt(crcValue >>> 0); // low 32 bits → 45-bit slot
         writeCodewordToSlot(crcData, geom.FEC_SYMS - 1);
         crc = makeBitwiseCrc32();
+      }
+      // In color mode, pack the bit buffer into base-5 chunks in the cells array.
+      if (useColor) {
+        flushColorBitsToPage();
+        colorBitBuf.fill(0); // reset for next page
       }
       pages.push(cells);
       cells = createBlankPage(geom);
@@ -500,7 +608,10 @@
     for (let i = BCH_K - 1; i > 0; i--) writePayloadBit(0);
     endPage();
 
-    return { geom, pages, nPages: pages.length, expectedPages, fecOrder };
+    // Attach fecOrder to geom so buildFormatString can read it.
+    geom.fecOrder = fecOrder;
+
+    return { geom, pages, nPages: pages.length, expectedPages, fecOrder, colorMode };
   }
 
   // ==========================================================================
@@ -515,6 +626,49 @@
       out[i] = (d[j] * 299 + d[j + 1] * 587 + d[j + 2] * 114 + 500) / 1000 | 0;
     }
     return out;
+  }
+
+  // Extract one RGB channel (0=R, 1=G, 2=B) from an ImageData into a Uint8Array.
+  function imageDataToChannel(imgData, channelIdx) {
+    const d = imgData.data;
+    const n = imgData.width * imgData.height;
+    const out = new Uint8Array(n);
+    for (let i = 0, j = channelIdx; i < n; i++, j += 4) out[i] = d[j];
+    return out;
+  }
+
+  // Read the 5 calibration patches painted by createBlankPage and return their
+  // mean (R,G,B) centroids. `crosses` gives the sync grid; for pixels in the
+  // text strip (below the data area) we bilinear-interpolate from the page
+  // corners rather than from the cross grid.
+  function readPatchCentroids(imgData, geom, corners) {
+    const W = imgData.width, H = imgData.height;
+    const d = imgData.data;
+    const scale = W / geom.WIDTH;  // pixels per cell
+    const centroids = [];
+
+    for (let k = 0; k < 5; k++) {
+      const p = geom.patchCellPositions[k];
+      // Convert cell coords to pixel coords (scale up), sample interior.
+      const px0 = Math.round(p.x0 * scale);
+      const py0 = Math.round(p.y0 * scale);
+      const px1 = Math.round(p.x1 * scale);
+      const py1 = Math.round(p.y1 * scale);
+      let rSum = 0, gSum = 0, bSum = 0, cnt = 0;
+      for (let py = py0; py < py1; py++) {
+        for (let px = px0; px < px1; px++) {
+          const idx = (py * W + px) * 4;
+          rSum += d[idx]; gSum += d[idx + 1]; bSum += d[idx + 2];
+          cnt++;
+        }
+      }
+      if (cnt > 0) {
+        centroids.push([rSum / cnt, gSum / cnt, bSum / cnt]);
+      } else {
+        centroids.push(PALETTE_5COLOR[k].slice()); // fallback to nominal
+      }
+    }
+    return centroids;
   }
 
   function analyzeCutlevel(gray) {
@@ -746,9 +900,14 @@
   function decodeImageData(imgData, opts) {
     const xcrosses = (opts && opts.xcrosses) || 65;
     const ycrosses = (opts && opts.ycrosses) || 93;
-    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
-    const useCRC   = (fecOrder === 11);
-    const geom = makeGeometry(xcrosses, ycrosses);
+    // Derive colorMode and fecOrder, cross-defaulting each from the other.
+    let colorMode = (opts && opts.colorMode) || 'mono';
+    let fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    if (fecOrder === 12)        colorMode = '5color';
+    if (colorMode === '5color') fecOrder  = 12;
+    const useColor = (colorMode === '5color');
+    const useCRC   = (fecOrder === 11 || fecOrder === 12);
+    const geom = makeGeometry(xcrosses, ycrosses, colorMode);
     const userSlots = useCRC ? geom.FEC_SYMS - 1 : geom.FEC_SYMS;
 
     const W = imgData.width;
@@ -762,7 +921,17 @@
     const crosses   = sync.crosses;
     const cutlevels = sync.cutlevels;
 
+    // 5-color: pre-extract RGB channels and read calibration patch centroids.
+    let chanR, chanG, chanB, centroids;
+    if (useColor) {
+      chanR     = imageDataToChannel(imgData, 0);
+      chanG     = imageDataToChannel(imgData, 1);
+      chanB     = imageDataToChannel(imgData, 2);
+      centroids = readPatchCentroids(imgData, geom, corners);
+    }
+
     const errorStats = [0, 0, 0, 0, 0];
+    let chunkErrors  = 0;
     const out = new Uint8Array(Math.ceil((geom.NETBITS + 7) / 8));
     let outIndex = 0;
     const state = (opts && opts.state) || null;
@@ -771,14 +940,60 @@
     const xyc  = [0, 0, 0];
     const crc  = useCRC ? makeBitwiseCrc32() : null;
 
+    // Color mode: random-access bit reader via a lazy chunk cache.
+    // The encoder writes BCH bit at stream position `seq = slot + b*FEC_SYMS`
+    // into chunk `floor(seq / COLOR_CHUNK_BITS)` at bit offset `seq % COLOR_CHUNK_BITS`.
+    // We cache decoded chunks so each is classified only once per page.
+    const colorChunkCache = useColor ? new Int32Array(
+      Math.ceil(geom.FEC_SYMS * BCH_N / COLOR_CHUNK_BITS) + 1).fill(-1) : null;
+
+    function getDecodedChunk(chunkIdx) {
+      if (colorChunkCache[chunkIdx] >= 0) return colorChunkCache[chunkIdx];
+      let N = 0;
+      for (let di = COLOR_CHUNK_CELLS - 1; di >= 0; di--) {
+        const cellSeq = chunkIdx * COLOR_CHUNK_CELLS + di;
+        seq2xyInto(geom, cellSeq, xy);
+        bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
+        const rs = getPixelInterp(chanR, W, H, xyc[0], xyc[1]);
+        const gs = getPixelInterp(chanG, W, H, xyc[0], xyc[1]);
+        const bs = getPixelInterp(chanB, W, H, xyc[0], xyc[1]);
+        let bestClass = 0, bestDist = Infinity;
+        for (let k = 0; k < 5; k++) {
+          const dr = rs - centroids[k][0];
+          const dg = gs - centroids[k][1];
+          const db = bs - centroids[k][2];
+          const dist = dr * dr + dg * dg + db * db;
+          if (dist < bestDist) { bestDist = dist; bestClass = k; }
+        }
+        N = N * 5 + bestClass;
+      }
+      if (N >= (1 << COLOR_CHUNK_BITS)) { N &= (1 << COLOR_CHUNK_BITS) - 1; chunkErrors++; }
+      colorChunkCache[chunkIdx] = N;
+      return N;
+    }
+
+    function getColorBit(seq) {
+      const chunkIdx = (seq / COLOR_CHUNK_BITS) | 0;
+      const bitPos   = seq % COLOR_CHUNK_BITS;              // 0 = MSB
+      const chunk    = getDecodedChunk(chunkIdx);
+      return (chunk >> (COLOR_CHUNK_BITS - 1 - bitPos)) & 1;
+    }
+
     function readCodeword(slot) {
       let received = 0n;
-      for (let bit = 0; bit < BCH_N; bit++) {
-        const seq = slot + bit * geom.FEC_SYMS;
-        seq2xyInto(geom, seq, xy);
-        bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
-        const sample = getPixelInterp(gray, W, H, xyc[0], xyc[1]);
-        received = (received << 1n) | (sample < xyc[2] ? 1n : 0n);
+      if (useColor) {
+        for (let bit = 0; bit < BCH_N; bit++) {
+          const seq = slot + bit * geom.FEC_SYMS;
+          received = (received << 1n) | BigInt(getColorBit(seq));
+        }
+      } else {
+        for (let bit = 0; bit < BCH_N; bit++) {
+          const seq = slot + bit * geom.FEC_SYMS;
+          seq2xyInto(geom, seq, xy);
+          bitCoord(crosses, cutlevels, xy[0], xy[1], geom, xyc);
+          const sample = getPixelInterp(gray, W, H, xyc[0], xyc[1]);
+          received = (received << 1n) | (sample < xyc[2] ? 1n : 0n);
+        }
       }
       return bchDecode(received);
     }
@@ -808,15 +1023,13 @@
       errorStats[crcDec.reparable ? Math.min(3, crcDec.errors) : 4]++;
       // Stored CRC sits in the low 32 bits of the codeword's 45-bit data.
       storedCRC = Number(BigInt(crcDec.data) & 0xFFFFFFFFn);
-      crcOk = (storedCRC === computedCRC) >>> 0 ? true : false;
-      // (the && coercion keeps it strictly boolean)
       crcOk = storedCRC === computedCRC;
     }
 
     return {
       geom, bytes: out.subarray(0, outIndex),
-      stats: { errors: errorStats, crcOk, storedCRC, computedCRC },
-      fecOrder, corners, crosses, globalCut,
+      stats: { errors: errorStats, crcOk, storedCRC, computedCRC, chunkErrors },
+      fecOrder, colorMode, corners, crosses, globalCut, centroids: centroids || null,
     };
   }
 
@@ -1025,7 +1238,8 @@
   // Format-string utilities.
   // ==========================================================================
   function buildFormatString(geom, pageNumber, totalPages, label) {
-    const core = `0-${geom.xcrosses}-${geom.ycrosses}-${CPITCH}-${CHALF}-${FEC_ORDER}-${BORDER}-${TEXT_HEIGHT}`;
+    const fo = (geom && geom.fecOrder != null) ? geom.fecOrder : FEC_ORDER;
+    const core = `0-${geom.xcrosses}-${geom.ycrosses}-${CPITCH}-${CHALF}-${fo}-${BORDER}-${TEXT_HEIGHT}`;
     return `${core} ${pageNumber}/${totalPages} ${label || ''}`.trim();
   }
 
@@ -1058,9 +1272,10 @@
   //      XCROSSES/YCROSSES); for byte-aligned configs the result is identical
   //      to single-pass concat.
   async function stitchFrames(frames, opts) {
-    const xcrosses = (opts && opts.xcrosses) || 65;
-    const ycrosses = (opts && opts.ycrosses) || 93;
-    const fecOrder = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    const xcrosses  = (opts && opts.xcrosses) || 65;
+    const ycrosses  = (opts && opts.ycrosses) || 93;
+    const fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
+    const colorMode = (opts && opts.colorMode) || (fecOrder === 12 ? '5color' : 'mono');
     const onProgress = opts && opts.onProgress;
 
     const seen = new Set();
@@ -1071,7 +1286,7 @@
       if (onProgress) onProgress(f, frames.length);
       let dec;
       try {
-        dec = decodeImageData(frames[f], { xcrosses, ycrosses, fecOrder });
+        dec = decodeImageData(frames[f], { xcrosses, ycrosses, fecOrder, colorMode });
       } catch (_) { failed++; continue; }
 
       const e = dec.stats.errors;
@@ -1107,7 +1322,7 @@
     const chunks = [];
     let total = 0;
     for (const frame of uniqueFrames) {
-      const dec = decodeImageData(frame, { xcrosses, ycrosses, fecOrder, state });
+      const dec = decodeImageData(frame, { xcrosses, ycrosses, fecOrder, colorMode, state });
       for (let k = 0; k < 5; k++) aggStats[k] += dec.stats.errors[k];
       if      (dec.stats.crcOk === true)  crcPagesOk++;
       else if (dec.stats.crcOk === false) crcPagesFail++;
@@ -1135,6 +1350,8 @@
     DEFAULT_SCALE,
     BCH_M, BCH_N, BCH_K, BCH_T, BCH_PARITY, BCH_GEN,
     OPTAR_HEADER_MAGIC, OPTAR_HEADER_MAGIC_Z,
+    // 5-color constants
+    PALETTE_5COLOR, COLOR_CHUNK_BITS, COLOR_CHUNK_CELLS, PATCH_W, PATCH_H,
     // Geometry
     makeGeometry, seq2xy, seq2xyInto,
     // BCH
@@ -1146,6 +1363,8 @@
     interleaveBits, deinterleaveBits,
     // Page rendering (pure cells array — no canvas)
     createBlankPage, drawCross,
+    // Decoder helpers
+    imageDataToGray, imageDataToChannel, readPatchCentroids,
     // Pipelines
     encodeBytes, decodeImageData,
     // Header

@@ -16,7 +16,7 @@
   if (typeof window === 'undefined' || !window.OPTAR) {
     throw new Error('optar-render.js requires window.OPTAR (load optar-codec.js first)');
   }
-  const { BORDER, CHALF, TEXT_HEIGHT } = window.OPTAR;
+  const { BORDER, CHALF, TEXT_HEIGHT, PALETTE_5COLOR } = window.OPTAR;
 
   // --------------------------------------------------------------------------
   // Render a page-cells Uint8Array (1 byte/cell, 0=black, 0xff=white) to a
@@ -36,9 +36,16 @@
     const sctx = small.getContext('2d');
     const img = sctx.createImageData(geom.WIDTH, geom.HEIGHT);
     const d = img.data;
-    for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
-      const v = cells[i];
-      d[j] = v; d[j + 1] = v; d[j + 2] = v; d[j + 3] = 255;
+    if (geom.colorMode === '5color') {
+      for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
+        const pal = PALETTE_5COLOR[cells[i]];
+        d[j] = pal[0]; d[j + 1] = pal[1]; d[j + 2] = pal[2]; d[j + 3] = 255;
+      }
+    } else {
+      for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
+        const v = cells[i];
+        d[j] = v; d[j + 1] = v; d[j + 2] = v; d[j + 3] = 255;
+      }
     }
     sctx.putImageData(img, 0, 0);
 
@@ -58,7 +65,15 @@
       bctx.font = `${fontPx}px monospace`;
       bctx.textBaseline = 'middle';
       bctx.textAlign = 'left';
+      // In 5-color mode, reserve the right edge for calibration patches.
+      const patchReserve = (geom.colorMode === '5color' && geom.patchCellPositions)
+        ? (W - geom.patchCellPositions[0].x0 * scale + 4)
+        : 0;
+      bctx.save();
+      bctx.rect(0, stripTop, W - patchReserve, stripH);
+      bctx.clip();
       bctx.fillText(opts.label, (BORDER + 4) * scale, stripTop + stripH / 2);
+      bctx.restore();
     }
     return big;
   }

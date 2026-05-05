@@ -208,6 +208,15 @@
       <label>Output dimensions</label>
       <div id="set-dims" class="sub"></div>
     </div>
+    <div class="field">
+      <label><input type="checkbox" id="set-color"> Color (5-state, ~2.3&times; density)</label>
+      <div class="sub">
+        Each cell is one of white, red, green, blue, or black. Five color reference
+        patches are printed in the page strip so the decoder can re-calibrate against
+        paper yellowing and lighting hue. Requires a color printer and color scanner;
+        do not photocopy in B&amp;W.
+      </div>
+    </div>
   </div>
   <div class="sub">
     Defaults match the original Optar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
@@ -243,6 +252,19 @@
     damage). The OPTR header carries the original filename and a SHA-256, so
     the decoder verifies recovery and downloads with the right name.
   </p>
+  <h3>Color mode (5-state, ~2.3&times; density)</h3>
+  <p>
+    Tick <strong>Color (5-state, ~2.3&times; density)</strong> in Settings before encoding.
+    Each cell is printed as one of five colors: white, red, green, blue, or black —
+    packing roughly 2.3 bits per cell instead of 1. Five color reference patches are
+    embedded in the page footer so the decoder can re-calibrate against paper yellowing,
+    off-hue lighting, or printer/scanner color variation. The format string carries
+    <code>FEC_ORDER=12</code> so the decoder self-identifies color pages automatically.
+  </p>
+  <p>
+    Color mode requires a <strong>color printer</strong> and a <strong>color scanner</strong>.
+    Photocopying in black-and-white or scanning in grayscale destroys 2/3 of the data.
+  </p>
   <h3>Troubleshooting</h3>
   <table>
     <tr><th>Problem</th><th>Solution</th></tr>
@@ -251,6 +273,7 @@
     <tr><td>Pages out of order</td><td>Rename files to sort correctly; check page sequence numbers.</td></tr>
     <tr><td>File has trailing garbage</td><td>The original file was zero-padded; strip trailing zeros or unwrap from tar/zip.</td></tr>
     <tr><td>Blank output</td><td>Check that you entered the correct format string.</td></tr>
+    <tr><td>0 bytes from a color page</td><td>Confirm the page was scanned in color (RGB), not grayscale or B&amp;W. Verify the five color patches are visible in the bottom strip.</td></tr>
   </table>
 </section>
 
@@ -300,7 +323,8 @@ const setX = $('set-xcrosses');
 const setY = $('set-ycrosses');
 const setScale = $('set-scale');
 const setPaper = $('set-paper');
-const setDims = $('set-dims');
+const setDims  = $('set-dims');
+const setColor = $('set-color');
 
 // Compute the largest XCROSSES/YCROSSES whose rendered canvas fits in the
 // current viewport at the given scale. WIDTH = 24·X − 14, HEIGHT = 24·Y + 10
@@ -327,10 +351,17 @@ function refreshSettings() {
     setX.value = fit.xcrosses;
     setY.value = fit.ycrosses;
   }
-  const xcrosses = parseInt(setX.value, 10) || 65;
-  const ycrosses = parseInt(setY.value, 10) || 93;
-  const scale = parseInt(setScale.value, 10) || DEFAULT_SCALE;
-  const geom = makeGeometry(xcrosses, ycrosses);
+  const xcrosses  = parseInt(setX.value, 10) || 65;
+  const ycrosses  = parseInt(setY.value, 10) || 93;
+  const scale     = parseInt(setScale.value, 10) || DEFAULT_SCALE;
+  const colorMode = setColor.checked ? '5color' : 'mono';
+  let geom;
+  try {
+    geom = makeGeometry(xcrosses, ycrosses, colorMode);
+  } catch (e) {
+    setDims.innerHTML = `<span class="warn">⚠ ${e.message}</span>`;
+    return;
+  }
   const px = `${geom.WIDTH * scale} × ${geom.HEIGHT * scale} px`;
   const cap = (geom.NETBITS / 8 / 1024).toFixed(1);
   const fits = (geom.WIDTH * scale <= window.innerWidth) &&
@@ -340,6 +371,7 @@ function refreshSettings() {
           : ' <span class="warn">⚠ scrolling required</span>');
 }
 [setX, setY, setScale].forEach(el => el.addEventListener('input', refreshSettings));
+setColor.addEventListener('change', refreshSettings);
 setPaper.addEventListener('change', () => {
   const v = setPaper.value;
   if      (v === 'A4')     { setX.value = 65; setY.value = 93; }
@@ -353,9 +385,10 @@ refreshSettings();
 
 function currentSettings() {
   return {
-    xcrosses: parseInt(setX.value, 10) || 65,
-    ycrosses: parseInt(setY.value, 10) || 93,
-    scale:    parseInt(setScale.value, 10) || DEFAULT_SCALE,
+    xcrosses:  parseInt(setX.value, 10) || 65,
+    ycrosses:  parseInt(setY.value, 10) || 93,
+    scale:     parseInt(setScale.value, 10) || DEFAULT_SCALE,
+    colorMode: setColor.checked ? '5color' : 'mono',
   };
 }
 
@@ -375,7 +408,9 @@ encFile.addEventListener('change', () => {
     return;
   }
   const settings = currentSettings();
-  const geom = makeGeometry(settings.xcrosses, settings.ycrosses);
+  let geom;
+  try { geom = makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode); }
+  catch (e) { encInfo.textContent = `⚠ ${e.message}`; encGo.disabled = true; return; }
   const bytesPerPage = geom.NETBITS / 8;
   const pages = Math.max(1, Math.ceil(encSelectedFile.size / bytesPerPage));
   encInfo.textContent = `${encSelectedFile.name} (${encSelectedFile.size} bytes) → ${pages} page${pages > 1 ? 's' : ''}`;

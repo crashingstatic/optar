@@ -6,7 +6,8 @@ optar_orig/unoptar
 test/node_modules/
 test/package-lock.json
 test/fixtures/*
-test/test_files/
+test/test_files/*
+!test/test_files/gen-test-files.sh
 !test/fixtures/.gitkeep
 *.jar
 .devcontainer

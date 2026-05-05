@@ -16,15 +16,23 @@ function assertEqual(a, b, msg) {
   if (a !== b) throw new Error(`${msg || ''}\n  expected: ${b}\n    actual: ${a}`);
 }
 
-// Render page cells (1 byte per cell) to a fake ImageData. The decoder
-// only reads {width, height, data: Uint8Array-like RGBA}, so we synthesise
-// that here without any browser API.
+// Render page cells to a fake ImageData. Routes by geom.colorMode:
+//   mono: cells hold 0x00/0xff → R=G=B=cell
+//   5color: cells hold palette ids 0..4 → map via PALETTE_5COLOR
 function cellsToImageData(cells, geom) {
   const W = geom.WIDTH, H = geom.HEIGHT;
   const data = new Uint8ClampedArray(W * H * 4);
-  for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
-    const v = cells[i];
-    data[j] = v; data[j + 1] = v; data[j + 2] = v; data[j + 3] = 255;
+  if (geom.colorMode === '5color') {
+    const PAL = [[255,255,255],[255,0,0],[0,255,0],[0,0,255],[0,0,0]];
+    for (let i = 0, j = 0; i < W * H; i++, j += 4) {
+      const [r, g, b] = PAL[cells[i]];
+      data[j] = r; data[j + 1] = g; data[j + 2] = b; data[j + 3] = 255;
+    }
+  } else {
+    for (let i = 0, j = 0; i < cells.length; i++, j += 4) {
+      const v = cells[i];
+      data[j] = v; data[j + 1] = v; data[j + 2] = v; data[j + 3] = 255;
+    }
   }
   return { width: W, height: H, data };
 }
@@ -272,6 +280,112 @@ test('stitchFrames works in Node without a browser', async () => {
   const unwrapped = await optar.unwrapHeader(stitched.bytes);
   assert(unwrapped.hashOk);
   assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0);
+});
+
+test('5-color: single-page encode→decode round-trip in Node', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  // userBitsPerPage = (FEC_SYMS-1)*45 (CRC slot reserved). Leave 100 bytes
+  // of margin for the OPTR header (~46 B) and BCH-K flush padding.
+  const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) - 100;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'color-roundtrip.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  assertEqual(enc.fecOrder, 12, 'encoder must set fecOrder=12 for 5color');
+  assertEqual(enc.colorMode, '5color');
+  assertEqual(enc.pages.length, 1);
+
+  const imgData = cellsToImageData(enc.pages[0], enc.geom);
+  const dec = optar.decodeImageData(imgData, settings);
+  assertEqual(dec.stats.errors[4], 0, 'no irreparable errors on clean encode');
+  assertEqual(dec.stats.crcOk, true, 'CRC must pass');
+  assertEqual(dec.fecOrder, 12);
+  assertEqual(dec.colorMode, '5color');
+
+  const unwrapped = await optar.unwrapHeader(dec.bytes);
+  assert(unwrapped.hasHeader, 'OPTR header must survive round-trip');
+  assert(unwrapped.hashOk, 'SHA-256 must verify');
+  assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0,
+    'recovered body must equal input');
+});
+
+test('5-color: multi-page round-trip with state threading', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  // Force >= 3 pages.
+  const N = Math.floor(2.5 * geom.NETBITS / 8) + 50;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'color-multi.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  assert(enc.pages.length >= 2, `expected >= 2 color pages, got ${enc.pages.length}`);
+
+  const state = { payloadAccu: 1 };
+  const merged = [];
+  for (const cells of enc.pages) {
+    const dec = optar.decodeImageData(cellsToImageData(cells, enc.geom),
+      { ...settings, state });
+    assertEqual(dec.stats.errors[4], 0, 'no irreparable errors per page');
+    for (let i = 0; i < dec.bytes.length; i++) merged.push(dec.bytes[i]);
+  }
+  const unwrapped = await optar.unwrapHeader(new Uint8Array(merged));
+  assert(unwrapped.hashOk, 'SHA-256 must verify across pages');
+  assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0);
+});
+
+test('5-color: format string carries fecOrder=12', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color' };
+  const wrapped = await optar.wrapWithHeader(Buffer.from('hello'), 'fmt-test.txt');
+  const enc = optar.encodeBytes(wrapped, settings);
+  const fmt = optar.buildFormatString(enc.geom, 1, enc.nPages, 'test');
+  const parsed = optar.parseFormatString(fmt);
+  assert(parsed !== null, 'format string must parse');
+  assertEqual(parsed.fecOrder, 12, 'parsed fecOrder must be 12 for 5color');
+});
+
+test('5-color: yellowed-paper simulation still decodes (centroid calibration)', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  // Leave comfortable headroom so the payload fits in one page after wrapping.
+  const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) - 100;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'yellow.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  const imgData = cellsToImageData(enc.pages[0], enc.geom);
+
+  // Simulate yellowing: reduce blue 30%, boost red 5%, green 2%.
+  const yellowed = new Uint8ClampedArray(imgData.data.length);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    yellowed[i]     = Math.min(255, imgData.data[i]     * 1.05);  // R
+    yellowed[i + 1] = Math.min(255, imgData.data[i + 1] * 1.02);  // G
+    yellowed[i + 2] = Math.min(255, imgData.data[i + 2] * 0.70);  // B
+    yellowed[i + 3] = 255;
+  }
+  const yellowedImg = { width: imgData.width, height: imgData.height, data: yellowed };
+
+  const dec = optar.decodeImageData(yellowedImg, settings);
+  assertEqual(dec.stats.errors[4], 0,
+    'centroid calibration must absorb moderate yellow-shift without irreparable errors');
+  assertEqual(dec.stats.crcOk, true, 'CRC must pass after yellow-shift');
+  const unwrapped = await optar.unwrapHeader(dec.bytes);
+  assert(unwrapped.hashOk, 'SHA-256 must verify after yellow-shift');
+  assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0);
+});
+
+test('5-color: geom.colorMode is set and color mode is denser than mono', () => {
+  const mono  = optar.makeGeometry(33, 47, 'mono');
+  const color = optar.makeGeometry(33, 47, '5color');
+  assertEqual(mono.colorMode,  'mono');
+  assertEqual(color.colorMode, '5color');
+  // 5-color packs ~2.286 bits/cell vs 1 bit/cell for mono.
+  assert(color.NETBITS > mono.NETBITS * 1.5, 'color page must be denser than mono');
+  assert(color.patchCellPositions !== null, 'color geom must have patch positions');
+  assertEqual(color.patchCellPositions.length, 5);
 });
 
 // ----------------------------------------------------------------------------
