@@ -17,15 +17,16 @@ function assertEqual(a, b, msg) {
 }
 
 // Render page cells to a fake ImageData. Routes by geom.colorMode:
-//   mono: cells hold 0x00/0xff → R=G=B=cell
-//   5color: cells hold palette ids 0..4 → map via PALETTE_5COLOR
+//   mono:        cells hold 0x00/0xff → R=G=B=cell
+//   5color:      cells hold palette ids 0..4 → map via PALETTE_5COLOR_RGB (WRGBK)
+//   5color-cmyk: cells hold palette ids 0..4 → map via PALETTE_5COLOR_CMYK (WCMYK)
 function cellsToImageData(cells, geom) {
   const W = geom.WIDTH, H = geom.HEIGHT;
   const data = new Uint8ClampedArray(W * H * 4);
-  if (geom.colorMode === '5color') {
-    const PAL = [[255,255,255],[255,0,0],[0,255,0],[0,0,255],[0,0,0]];
+  const pal = optar.paletteFor(geom.colorMode);
+  if (pal) {
     for (let i = 0, j = 0; i < W * H; i++, j += 4) {
-      const [r, g, b] = PAL[cells[i]];
+      const [r, g, b] = pal[cells[i]];
       data[j] = r; data[j + 1] = g; data[j + 2] = b; data[j + 3] = 255;
     }
   } else {
@@ -386,6 +387,105 @@ test('5-color: geom.colorMode is set and color mode is denser than mono', () => 
   assert(color.NETBITS > mono.NETBITS * 1.5, 'color page must be denser than mono');
   assert(color.patchCellPositions !== null, 'color geom must have patch positions');
   assertEqual(color.patchCellPositions.length, 5);
+});
+
+test('5-color CMYK: single-page encode→decode round-trip in Node', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color-cmyk' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) - 100;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'color-cmyk-roundtrip.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  assertEqual(enc.fecOrder, 13, 'encoder must set fecOrder=13 for 5color-cmyk');
+  assertEqual(enc.colorMode, '5color-cmyk');
+  assertEqual(enc.pages.length, 1);
+
+  const imgData = cellsToImageData(enc.pages[0], enc.geom);
+  const dec = optar.decodeImageData(imgData, settings);
+  assertEqual(dec.stats.errors[4], 0, 'no irreparable errors on clean encode');
+  assertEqual(dec.stats.crcOk, true, 'CRC must pass');
+  assertEqual(dec.fecOrder, 13);
+  assertEqual(dec.colorMode, '5color-cmyk');
+
+  const unwrapped = await optar.unwrapHeader(dec.bytes);
+  assert(unwrapped.hasHeader, 'OPTR header must survive round-trip');
+  assert(unwrapped.hashOk, 'SHA-256 must verify');
+  assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0,
+    'recovered body must equal input');
+});
+
+test('5-color CMYK: format string carries fecOrder=13', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color-cmyk' };
+  const wrapped = await optar.wrapWithHeader(Buffer.from('hello'), 'fmt-cmyk.txt');
+  const enc = optar.encodeBytes(wrapped, settings);
+  const fmt = optar.buildFormatString(enc.geom, 1, enc.nPages, 'test');
+  const parsed = optar.parseFormatString(fmt);
+  assert(parsed !== null, 'format string must parse');
+  assertEqual(parsed.fecOrder, 13, 'parsed fecOrder must be 13 for 5color-cmyk');
+});
+
+test('5-color CMYK: decoder auto-detects via fecOrder=13 (no colorMode hint)', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color-cmyk' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) - 100;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'cmyk-autodetect.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  const imgData = cellsToImageData(enc.pages[0], enc.geom);
+
+  // Decode with only fecOrder supplied — colorMode must be auto-derived.
+  const dec = optar.decodeImageData(imgData, { xcrosses: 33, ycrosses: 47, fecOrder: 13 });
+  assertEqual(dec.colorMode, '5color-cmyk', 'auto-derived colorMode must be 5color-cmyk');
+  assertEqual(dec.stats.errors[4], 0);
+  assertEqual(dec.stats.crcOk, true);
+});
+
+test('5-color CMYK: yellowed-paper simulation still decodes (centroid calibration)', async () => {
+  const settings = { xcrosses: 33, ycrosses: 47, colorMode: '5color-cmyk' };
+  const geom = optar.makeGeometry(settings.xcrosses, settings.ycrosses, settings.colorMode);
+  const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) - 100;
+  const input = crypto.randomBytes(N);
+  if (input[N - 1] === 0) input[N - 1] = 0xff;
+
+  const wrapped = await optar.wrapWithHeader(input, 'yellow-cmyk.bin');
+  const enc = optar.encodeBytes(wrapped, settings);
+  const imgData = cellsToImageData(enc.pages[0], enc.geom);
+
+  const yellowed = new Uint8ClampedArray(imgData.data.length);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    yellowed[i]     = Math.min(255, imgData.data[i]     * 1.05);  // R
+    yellowed[i + 1] = Math.min(255, imgData.data[i + 1] * 1.02);  // G
+    yellowed[i + 2] = Math.min(255, imgData.data[i + 2] * 0.70);  // B
+    yellowed[i + 3] = 255;
+  }
+  const yellowedImg = { width: imgData.width, height: imgData.height, data: yellowed };
+
+  const dec = optar.decodeImageData(yellowedImg, settings);
+  assertEqual(dec.stats.errors[4], 0,
+    'centroid calibration must absorb moderate yellow-shift without irreparable errors');
+  assertEqual(dec.stats.crcOk, true, 'CRC must pass after yellow-shift');
+  const unwrapped = await optar.unwrapHeader(dec.bytes);
+  assert(unwrapped.hashOk, 'SHA-256 must verify after yellow-shift');
+  assertEqual(Buffer.compare(Buffer.from(unwrapped.body), input), 0);
+});
+
+test('5-color CMYK: geom.colorMode is set and CMYK palette is distinct from RGB', () => {
+  const cmyk = optar.makeGeometry(33, 47, '5color-cmyk');
+  assertEqual(cmyk.colorMode, '5color-cmyk');
+  assert(cmyk.patchCellPositions !== null, 'CMYK geom must have patch positions');
+  assertEqual(cmyk.patchCellPositions.length, 5);
+  // Verify the two palettes are distinct.
+  const rgb  = optar.PALETTE_5COLOR_RGB;
+  const cmykP = optar.PALETTE_5COLOR_CMYK;
+  assert(JSON.stringify(rgb) !== JSON.stringify(cmykP), 'RGB and CMYK palettes must differ');
+  // CMYK palette: index 1 = cyan = (0,255,255), index 2 = magenta = (255,0,255).
+  assertEqual(cmykP[1][0], 0);
+  assertEqual(cmykP[1][1], 255);
+  assertEqual(cmykP[1][2], 255);
 });
 
 // ----------------------------------------------------------------------------

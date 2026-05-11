@@ -211,11 +211,19 @@
     <div class="field">
       <label><input type="checkbox" id="set-color"> Color (5-state, ~2.3&times; density)</label>
       <div class="sub">
-        Each cell is one of white, red, green, blue, or black. Five color reference
-        patches are printed in the page strip so the decoder can re-calibrate against
-        paper yellowing and lighting hue. Requires a color printer and color scanner;
-        do not photocopy in B&amp;W.
+        Each cell is one of five colors. Five calibration patches in the page strip
+        let the decoder adjust for paper yellowing and lighting hue. Requires a color
+        printer and color scanner; do not photocopy in B&amp;W.
       </div>
+    </div>
+    <div class="field" id="field-palette" style="display:none">
+      <label for="set-palette">Color palette</label>
+      <select id="set-palette">
+        <option value="auto">Auto (by page size)</option>
+        <option value="wcmyk">WCMYK — for print/scan</option>
+        <option value="wrgbk">WRGBK — for screen/video</option>
+      </select>
+      <div class="sub" id="palette-hint" style="margin-top:4px"></div>
     </div>
   </div>
   <div class="sub">
@@ -255,11 +263,16 @@
   <h3>Color mode (5-state, ~2.3&times; density)</h3>
   <p>
     Tick <strong>Color (5-state, ~2.3&times; density)</strong> in Settings before encoding.
-    Each cell is printed as one of five colors: white, red, green, blue, or black —
-    packing roughly 2.3 bits per cell instead of 1. Five color reference patches are
-    embedded in the page footer so the decoder can re-calibrate against paper yellowing,
-    off-hue lighting, or printer/scanner color variation. The format string carries
-    <code>FEC_ORDER=12</code> so the decoder self-identifies color pages automatically.
+    Each cell is printed as one of five colors, packing roughly 2.3 bits per cell
+    instead of 1. Five color reference patches are embedded in the page footer so the
+    decoder can re-calibrate against paper yellowing, off-hue lighting, or
+    printer/scanner color variation. The palette is chosen automatically by paper size —
+    <strong>A4/Letter</strong> defaults to WCMYK (white, cyan, magenta, yellow, black —
+    <code>FEC_ORDER=13</code>) so each color maps to a single ink on paper;
+    <strong>Fit-to-screen</strong> defaults to WRGBK (white, red, green, blue, black —
+    <code>FEC_ORDER=12</code>) for clean Bayer-channel capture from a screen.
+    Use the <strong>Color palette</strong> drop-down to override the default for either page size.
+    The format string carries the FEC_ORDER so the decoder self-identifies the palette automatically.
   </p>
   <p>
     Color mode requires a <strong>color printer</strong> and a <strong>color scanner</strong>.
@@ -319,12 +332,15 @@ tabButtons.forEach(btn => {
 });
 
 // --- Settings panel --------------------------------------------------------
-const setX = $('set-xcrosses');
-const setY = $('set-ycrosses');
-const setScale = $('set-scale');
-const setPaper = $('set-paper');
-const setDims  = $('set-dims');
-const setColor = $('set-color');
+const setX       = $('set-xcrosses');
+const setY       = $('set-ycrosses');
+const setScale   = $('set-scale');
+const setPaper   = $('set-paper');
+const setDims    = $('set-dims');
+const setColor   = $('set-color');
+const setPalette = $('set-palette');
+const fieldPalette = $('field-palette');
+const paletteHint  = $('palette-hint');
 
 // Compute the largest XCROSSES/YCROSSES whose rendered canvas fits in the
 // current viewport at the given scale. WIDTH = 24·X − 14, HEIGHT = 24·Y + 10
@@ -344,7 +360,26 @@ function fitToViewport(scale) {
   };
 }
 
+function effectiveColorMode() {
+  if (!setColor.checked) return 'mono';
+  const pal = setPalette.value;
+  if (pal === 'wcmyk') return '5color-cmyk';
+  if (pal === 'wrgbk') return '5color';
+  // auto: WCMYK for print sizes, WRGBK for screen
+  return setPaper.value === 'Fit' ? '5color' : '5color-cmyk';
+}
+
 function refreshSettings() {
+  const colorChecked = setColor.checked;
+  fieldPalette.style.display = colorChecked ? '' : 'none';
+  if (colorChecked) {
+    const auto = setPalette.value === 'auto';
+    const effective = effectiveColorMode();
+    paletteHint.textContent = auto
+      ? `Auto-selected: ${effective === '5color-cmyk' ? 'WCMYK (print/scan)' : 'WRGBK (screen/video)'}`
+      : '';
+  }
+
   if (setPaper.value === 'Fit') {
     const scale = parseInt(setScale.value, 10) || DEFAULT_SCALE;
     const fit = fitToViewport(scale);
@@ -354,7 +389,7 @@ function refreshSettings() {
   const xcrosses  = parseInt(setX.value, 10) || 65;
   const ycrosses  = parseInt(setY.value, 10) || 93;
   const scale     = parseInt(setScale.value, 10) || DEFAULT_SCALE;
-  const colorMode = setColor.checked ? '5color' : 'mono';
+  const colorMode = effectiveColorMode();
   let geom;
   try {
     geom = makeGeometry(xcrosses, ycrosses, colorMode);
@@ -372,6 +407,7 @@ function refreshSettings() {
 }
 [setX, setY, setScale].forEach(el => el.addEventListener('input', refreshSettings));
 setColor.addEventListener('change', refreshSettings);
+setPalette.addEventListener('change', refreshSettings);
 setPaper.addEventListener('change', () => {
   const v = setPaper.value;
   if      (v === 'A4')     { setX.value = 65; setY.value = 93; }
@@ -388,7 +424,7 @@ function currentSettings() {
     xcrosses:  parseInt(setX.value, 10) || 65,
     ycrosses:  parseInt(setY.value, 10) || 93,
     scale:     parseInt(setScale.value, 10) || DEFAULT_SCALE,
-    colorMode: setColor.checked ? '5color' : 'mono',
+    colorMode: effectiveColorMode(),
   };
 }
 

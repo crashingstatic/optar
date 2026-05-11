@@ -49,17 +49,27 @@
   //   10    = BCH(63, 45, t=3), no per-page integrity check
   //   11    = BCH(63, 45, t=3) + per-page CRC32 (last codeword of each page
   //           holds CRC32 of the page's user-data bits)
-  //   12    = BCH(63, 45, t=3) + per-page CRC32 + 5-color base-5 palette
+  //   12    = BCH(63, 45, t=3) + per-page CRC32 + 5-color WRGBK palette
   //           (16 BCH bits packed into 7 cells, 5 states per cell: W/R/G/B/K)
+  //   13    = BCH(63, 45, t=3) + per-page CRC32 + 5-color WCMYK palette
+  //           (same geometry as 12; cells: W/C/M/Y/K — used for print output)
   // The encoder defaults to 11 (CRC); the decoder auto-branches on whatever
   // FEC_ORDER is parsed out of the user's format string, so older pages
   // (FEC_ORDER=10) and current pages (=11) both round-trip correctly.
   const FEC_ORDER      = 11;
   const DEFAULT_SCALE  = 3;
 
-  // 5-color palette: ids 0..4 (lightest → darkest, mirrors mono "0=light, 1=dark").
-  //   0=W (255,255,255)  1=R (255,0,0)  2=G (0,255,0)  3=B (0,0,255)  4=K (0,0,0)
-  const PALETTE_5COLOR   = [[255,255,255],[255,0,0],[0,255,0],[0,0,255],[0,0,0]];
+  // 5-color palettes: ids 0..4 (lightest → darkest, mirrors mono "0=light, 1=dark").
+  //   WRGBK (fecOrder=12, screen/photo): 0=W  1=R  2=G  3=B  4=K
+  //   WCMYK (fecOrder=13, print):        0=W  1=C  2=M  3=Y  4=K
+  const PALETTE_5COLOR_RGB  = [[255,255,255],[255,0,0],[0,255,0],[0,0,255],[0,0,0]];
+  const PALETTE_5COLOR_CMYK = [[255,255,255],[0,255,255],[255,0,255],[255,255,0],[0,0,0]];
+  const PALETTE_5COLOR      = PALETTE_5COLOR_RGB;  // back-compat alias
+  function paletteFor(colorMode) {
+    if (colorMode === '5color-cmyk') return PALETTE_5COLOR_CMYK;
+    if (colorMode === '5color')      return PALETTE_5COLOR_RGB;
+    return null;
+  }
   const COLOR_CHUNK_BITS  = 16;   // bits per base-5 chunk
   const COLOR_CHUNK_CELLS = 7;    // cells per chunk (5^7 = 78125 >= 2^16 = 65536)
   const PATCH_W           = 16;   // calibration patch width in cells
@@ -102,7 +112,7 @@
     const TOTALBITS     = REPPIXELS * (ycrosses - 1) + NARROWPIXELS;
 
     let FEC_SYMS, NETBITS, patchCellPositions;
-    if (colorMode === '5color') {
+    if (colorMode === '5color' || colorMode === '5color-cmyk') {
       if (WIDTH < 5 * PATCH_W + 80) {
         throw new Error(
           `Page too narrow for 5-color mode (WIDTH=${WIDTH} cells, need >= ${5 * PATCH_W + 80}). ` +
@@ -437,7 +447,7 @@
 
   function createBlankPage(geom) {
     const cells = new Uint8Array(geom.WIDTH * geom.HEIGHT);
-    const use5 = (geom.colorMode === '5color');
+    const use5 = (geom.colorMode === '5color' || geom.colorMode === '5color-cmyk');
     const BG    = use5 ? 0    : 0xff;   // page interior background (W=0 or white=0xff)
     const BLACK = use5 ? 4    : 0x00;   // border / text-strip / cross-black
     const WHITE = use5 ? 0    : 0xff;   // cross-white (same as BG)
@@ -484,10 +494,12 @@
     // Derive colorMode and fecOrder, cross-defaulting each from the other.
     let colorMode = (opts && opts.colorMode) || 'mono';
     let fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
-    if (fecOrder === 12)        colorMode = '5color';
-    if (colorMode === '5color') fecOrder  = 12;
-    const useColor = (colorMode === '5color');
-    const useCRC   = (fecOrder === 11 || fecOrder === 12);
+    if (fecOrder === 12)              colorMode = '5color';
+    if (fecOrder === 13)              colorMode = '5color-cmyk';
+    if (colorMode === '5color')       fecOrder  = 12;
+    if (colorMode === '5color-cmyk')  fecOrder  = 13;
+    const useColor = (colorMode === '5color' || colorMode === '5color-cmyk');
+    const useCRC   = (fecOrder === 11 || fecOrder === 12 || fecOrder === 13);
     const geom = makeGeometry(xcrosses, ycrosses, colorMode);
     // Per-page user-codeword count: one slot reserved for the CRC32 codeword
     // when CRC mode is on. Capacity drop is 1/FEC_SYMS ≈ 0.002% at A4.
@@ -665,7 +677,7 @@
       if (cnt > 0) {
         centroids.push([rSum / cnt, gSum / cnt, bSum / cnt]);
       } else {
-        centroids.push(PALETTE_5COLOR[k].slice()); // fallback to nominal
+        centroids.push(paletteFor(geom.colorMode)[k].slice()); // fallback to nominal
       }
     }
     return centroids;
@@ -903,10 +915,12 @@
     // Derive colorMode and fecOrder, cross-defaulting each from the other.
     let colorMode = (opts && opts.colorMode) || 'mono';
     let fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
-    if (fecOrder === 12)        colorMode = '5color';
-    if (colorMode === '5color') fecOrder  = 12;
-    const useColor = (colorMode === '5color');
-    const useCRC   = (fecOrder === 11 || fecOrder === 12);
+    if (fecOrder === 12)              colorMode = '5color';
+    if (fecOrder === 13)              colorMode = '5color-cmyk';
+    if (colorMode === '5color')       fecOrder  = 12;
+    if (colorMode === '5color-cmyk')  fecOrder  = 13;
+    const useColor = (colorMode === '5color' || colorMode === '5color-cmyk');
+    const useCRC   = (fecOrder === 11 || fecOrder === 12 || fecOrder === 13);
     const geom = makeGeometry(xcrosses, ycrosses, colorMode);
     const userSlots = useCRC ? geom.FEC_SYMS - 1 : geom.FEC_SYMS;
 
@@ -1275,7 +1289,7 @@
     const xcrosses  = (opts && opts.xcrosses) || 65;
     const ycrosses  = (opts && opts.ycrosses) || 93;
     const fecOrder  = (opts && opts.fecOrder !== undefined) ? opts.fecOrder : FEC_ORDER;
-    const colorMode = (opts && opts.colorMode) || (fecOrder === 12 ? '5color' : 'mono');
+    const colorMode = (opts && opts.colorMode) || (fecOrder === 12 ? '5color' : fecOrder === 13 ? '5color-cmyk' : 'mono');
     const onProgress = opts && opts.onProgress;
 
     const seen = new Set();
@@ -1351,7 +1365,8 @@
     BCH_M, BCH_N, BCH_K, BCH_T, BCH_PARITY, BCH_GEN,
     OPTAR_HEADER_MAGIC, OPTAR_HEADER_MAGIC_Z,
     // 5-color constants
-    PALETTE_5COLOR, COLOR_CHUNK_BITS, COLOR_CHUNK_CELLS, PATCH_W, PATCH_H,
+    PALETTE_5COLOR, PALETTE_5COLOR_RGB, PALETTE_5COLOR_CMYK, paletteFor,
+    COLOR_CHUNK_BITS, COLOR_CHUNK_CELLS, PATCH_W, PATCH_H,
     // Geometry
     makeGeometry, seq2xy, seq2xyInto,
     // BCH

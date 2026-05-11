@@ -11,3 +11,4 @@ test/test_files/*
 !test/fixtures/.gitkeep
 *.jar
 .devcontainer
+.dockerignore
