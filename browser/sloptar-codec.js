@@ -1,9 +1,9 @@
-// optar-codec.js — Optar BCH(63, 45, t=3) codec.
+// sloptar-codec.js — Sloptar BCH(63, 45, t=3) codec.
 //
 // Pure JavaScript: no DOM, no canvas, no FileReader. Works in:
-//   • a browser   <script src="optar-codec.js">    → window.OPTAR
-//   • Node.js     const optar = require('./optar-codec.js');
-//   • a worker    importScripts('optar-codec.js')  → self.OPTAR
+//   • a browser   <script src="sloptar-codec.js">    → window.SLOPTAR
+//   • Node.js     const sloptar = require('./sloptar-codec.js');
+//   • a worker    importScripts('sloptar-codec.js')  → self.SLOPTAR
 //
 // Public API (all functions accept/return only Uint8Array, BigInt, plain
 // objects, and Promises):
@@ -29,13 +29,13 @@
   } else if (typeof define === 'function' && define.amd) {
     define([], factory);                    // AMD
   } else {
-    root.OPTAR = factory();                 // Browser / worker global
+    root.SLOPTAR = factory();                 // Browser / worker global
   }
 }(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this), function () {
   'use strict';
 
   // ==========================================================================
-  // Constants — Twibright Optar geometry, BCH(63,45,t=3) FEC.
+  // Constants — Twibright Sloptar geometry, BCH(63,45,t=3) FEC.
   // ==========================================================================
   const BORDER         = 2;
   const CHALF          = 3;
@@ -44,7 +44,7 @@
   const FEC_LARGEBITS  = 63;
   const FEC_SMALLBITS  = 45;
   // FEC_ORDER values:
-  //   1     = Golay (legacy, original Optar)
+  //   1     = Golay (legacy, original Sloptar)
   //   2..5  = Hamming variants (legacy)
   //   10    = BCH(63, 45, t=3), no per-page integrity check
   //   11    = BCH(63, 45, t=3) + per-page CRC32 (last codeword of each page
@@ -88,8 +88,8 @@
   const CROSS_TRIM     = 0.75;
   const FINESTEP       = 0.25;
 
-  const OPTAR_HEADER_MAGIC   = [0x4f, 0x50, 0x54, 0x52]; // "OPTR" — legacy uncompressed
-  const OPTAR_HEADER_MAGIC_Z = [0x4f, 0x50, 0x54, 0x5a]; // "OPTZ" — gzip + explicit length
+  const SLOPTAR_HEADER_MAGIC   = [0x4f, 0x50, 0x54, 0x52]; // "OPTR" — legacy uncompressed
+  const SLOPTAR_HEADER_MAGIC_Z = [0x4f, 0x50, 0x54, 0x5a]; // "OPTZ" — gzip + explicit length
 
   // ==========================================================================
   // Geometry.
@@ -1157,7 +1157,7 @@
     if (optzCost < fileBytes.length) {
       const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + 4 + compressed.length);
       let p = 0;
-      for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC_Z[i];
+      for (let i = 0; i < 4; i++) out[p++] = SLOPTAR_HEADER_MAGIC_Z[i];
       out.set(digest, p);   p += 32;
       out.set(nameUtf8, p); p += nameUtf8.length;
       out[p++] = 0;
@@ -1171,7 +1171,7 @@
     }
     const out = new Uint8Array(4 + 32 + nameUtf8.length + 1 + fileBytes.length);
     let p = 0;
-    for (let i = 0; i < 4; i++) out[p++] = OPTAR_HEADER_MAGIC[i];
+    for (let i = 0; i < 4; i++) out[p++] = SLOPTAR_HEADER_MAGIC[i];
     out.set(digest, p);   p += 32;
     out.set(nameUtf8, p); p += nameUtf8.length;
     out[p++] = 0;
@@ -1186,12 +1186,12 @@
     let isGzip = false;
     let magicOk = true;
     for (let i = 0; i < 4; i++) {
-      if (decodedBytes[i] !== OPTAR_HEADER_MAGIC[i]) { magicOk = false; break; }
+      if (decodedBytes[i] !== SLOPTAR_HEADER_MAGIC[i]) { magicOk = false; break; }
     }
     if (!magicOk) {
       magicOk = true;
       for (let i = 0; i < 4; i++) {
-        if (decodedBytes[i] !== OPTAR_HEADER_MAGIC_Z[i]) { magicOk = false; break; }
+        if (decodedBytes[i] !== SLOPTAR_HEADER_MAGIC_Z[i]) { magicOk = false; break; }
       }
       if (magicOk) isGzip = true;
     }
@@ -1363,7 +1363,7 @@
     BORDER, CHALF, CPITCH, TEXT_HEIGHT, FEC_LARGEBITS, FEC_SMALLBITS, FEC_ORDER,
     DEFAULT_SCALE,
     BCH_M, BCH_N, BCH_K, BCH_T, BCH_PARITY, BCH_GEN,
-    OPTAR_HEADER_MAGIC, OPTAR_HEADER_MAGIC_Z,
+    SLOPTAR_HEADER_MAGIC, SLOPTAR_HEADER_MAGIC_Z,
     // 5-color constants
     PALETTE_5COLOR, PALETTE_5COLOR_RGB, PALETTE_5COLOR_CMYK, paletteFor,
     COLOR_CHUNK_BITS, COLOR_CHUNK_CELLS, PATCH_W, PATCH_H,

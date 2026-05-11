@@ -7,7 +7,7 @@
 const path = require('path');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -26,7 +26,7 @@ async function runAll() {
   const page = await browser.newPage();
   page.on('pageerror', e => console.error('[pageerror]', e.message));
   await page.goto('file://' + HTML_PATH, { waitUntil: 'load' });
-  await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
+  await page.waitForFunction('window.SLOPTAR_READY === true', { timeout: 10000 });
 
   let passed = 0, failed = 0;
   for (const t of tests) {
@@ -61,21 +61,21 @@ test('streaming: dedup + stitch from duplicated frame captures', async (page) =>
     // Force last byte non-zero so the trim-trailing-zeros unwrap doesn't
     // eat it (documented limitation of zero-terminated body framing).
     if (input[N - 1] === 0) input[N - 1] = 0xff;
-    const wrapped = await OPTAR.wrapWithHeader(input, 'streaming-test.bin');
-    const enc = OPTAR.encodeBytes(wrapped, settings);
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'streaming-test.bin');
+    const enc = SLOPTAR.encodeBytes(wrapped, settings);
 
     // Simulate 6 captured frames per page (mimics screen recording at ~60 fps
     // catching a 100 ms display).
     const FRAMES_PER_PAGE = 6;
     const frames = [];
     for (let p = 0; p < enc.pages.length; p++) {
-      const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
+      const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
       for (let f = 0; f < FRAMES_PER_PAGE; f++) frames.push(id);
     }
 
-    const stitched = await OPTAR.stitchFrames(frames, settings);
-    const unwrapped = await OPTAR.unwrapHeader(stitched.bytes);
+    const stitched = await SLOPTAR.stitchFrames(frames, settings);
+    const unwrapped = await SLOPTAR.unwrapHeader(stitched.bytes);
     let mm = 0;
     for (let i = 0; i < N; i++) if (unwrapped.body[i] !== input[i]) mm++;
     return {
@@ -110,8 +110,8 @@ test('streaming: stitch handles noisy duplicate captures', async (page) => {
       input[i] = seed & 0xff;
     }
     if (input[N - 1] === 0) input[N - 1] = 0xff;
-    const wrapped = await OPTAR.wrapWithHeader(input, 'noisy-stream.bin');
-    const enc = OPTAR.encodeBytes(wrapped, settings);
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'noisy-stream.bin');
+    const enc = SLOPTAR.encodeBytes(wrapped, settings);
 
     function noisyImageData(canvas, sigma) {
       const ctx = canvas.getContext('2d');
@@ -130,14 +130,14 @@ test('streaming: stitch handles noisy duplicate captures', async (page) => {
     const FRAMES_PER_PAGE = 5;
     const frames = [];
     for (let p = 0; p < enc.pages.length; p++) {
-      const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
+      const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[p], enc.geom, 1, { label: 'stream' });
       for (let f = 0; f < FRAMES_PER_PAGE; f++) {
         frames.push(noisyImageData(canvas, 4));
       }
     }
 
-    const stitched = await OPTAR.stitchFrames(frames, settings);
-    const unwrapped = await OPTAR.unwrapHeader(stitched.bytes);
+    const stitched = await SLOPTAR.stitchFrames(frames, settings);
+    const unwrapped = await SLOPTAR.unwrapHeader(stitched.bytes);
     let mm = 0;
     for (let i = 0; i < N; i++) if (unwrapped.body[i] !== input[i]) mm++;
     return {
@@ -165,12 +165,12 @@ test('streaming: stitch rejects garbage / mid-transition frames', async (page) =
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = ((i * 97) ^ 0xa5) & 0xff;
     if (input[N - 1] === 0) input[N - 1] = 0xff;
-    const wrapped = await OPTAR.wrapWithHeader(input, 'mixed.bin');
-    const enc = OPTAR.encodeBytes(wrapped, settings);
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'mixed.bin');
+    const enc = SLOPTAR.encodeBytes(wrapped, settings);
 
     // Build a synthetic frame sequence: a few good captures of page 1, a
     // garbage frame (random pixels), more good captures, garbage, etc.
-    const goodCanvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'g' });
+    const goodCanvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'g' });
     const goodId = goodCanvas.getContext('2d').getImageData(0, 0, goodCanvas.width, goodCanvas.height);
     function garbageId(seed) {
       // Deterministic LCG so the test isn't subject to Math.random flakiness.
@@ -196,8 +196,8 @@ test('streaming: stitch rejects garbage / mid-transition frames', async (page) =
       garbageId(4), garbageId(5),  // post-roll
     ];
 
-    const stitched = await OPTAR.stitchFrames(frames, settings);
-    const unwrapped = await OPTAR.unwrapHeader(stitched.bytes);
+    const stitched = await SLOPTAR.stitchFrames(frames, settings);
+    const unwrapped = await SLOPTAR.unwrapHeader(stitched.bytes);
     let mm = 0;
     for (let i = 0; i < N; i++) if (unwrapped.body[i] !== input[i]) mm++;
     return {

@@ -1,6 +1,6 @@
 // End-to-end hash round-trip:
 //   1. Generate random bytes, write to disk, hash.
-//   2. Drive optar.html in headless Chromium to encode → PNG files on disk.
+//   2. Drive sloptar.html in headless Chromium to encode → PNG files on disk.
 //   3. Re-load those PNG files into the browser, decode, write decoded bytes.
 //   4. Trim to original length, hash, compare.
 //
@@ -12,7 +12,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 const FIXTURES = path.resolve(__dirname, 'fixtures');
 const SIZE = parseInt(process.argv[2], 10) || 50 * 1024;
 

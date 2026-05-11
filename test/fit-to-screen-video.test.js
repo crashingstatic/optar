@@ -34,7 +34,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 const FILES_DIR = path.resolve(__dirname, 'test_files');
 const SHAS_PATH = path.join(FILES_DIR, 'SHAs');
 
@@ -100,7 +100,7 @@ const FILES = [
     if (process.env.VERBOSE === '1') console.log('[page]', msg.text());
   });
   await page.goto('file://' + HTML_PATH, { waitUntil: 'load' });
-  await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
+  await page.waitForFunction('window.SLOPTAR_READY === true', { timeout: 10000 });
 
   // Push the test files into the browser context once; we'll reference
   // them by name in each round-trip.
@@ -136,23 +136,23 @@ const FILES = [
         const settings = { xcrosses, ycrosses, scale: 1 };
         const fileBytes = window.__TEST_FILES[fname];
 
-        const wrapped = await OPTAR.wrapWithHeader(fileBytes, fname);
-        const enc = OPTAR.encodeBytes(wrapped, settings);
+        const wrapped = await SLOPTAR.wrapWithHeader(fileBytes, fname);
+        const enc = SLOPTAR.encodeBytes(wrapped, settings);
         const canvases = enc.pages.map((cells, i) =>
-          OPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, {
-            label: OPTAR.buildFormatString(enc.geom, i + 1, enc.nPages, 'fit-vid'),
+          SLOPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, {
+            label: SLOPTAR.buildFormatString(enc.geom, i + 1, enc.nPages, 'fit-vid'),
           }));
 
         const recOpts = { fps };
         if (window.__FORCE_MIME) recOpts.mimeType = window.__FORCE_MIME;
         if (window.__FORCE_BPS)  recOpts.bitsPerSecond = window.__FORCE_BPS;
-        const { blob, mimeType } = await OPTAR_RENDER.recordPagesToVideo(canvases, recOpts);
+        const { blob, mimeType } = await SLOPTAR_RENDER.recordPagesToVideo(canvases, recOpts);
         const file = new File([blob], 'roundtrip.' + (mimeType.includes('mp4') ? 'mp4' : 'webm'),
                               { type: mimeType });
 
-        const { frames } = await OPTAR_RENDER.extractVideoFrames(file, { sampleFps: 30 });
-        const stitched = await OPTAR.stitchFrames(frames, settings);
-        const unwrapped = await OPTAR.unwrapHeader(stitched.bytes);
+        const { frames } = await SLOPTAR_RENDER.extractVideoFrames(file, { sampleFps: 30 });
+        const stitched = await SLOPTAR.stitchFrames(frames, settings);
+        const unwrapped = await SLOPTAR.unwrapHeader(stitched.bytes);
 
         // Hash the recovered body for the test runner to compare against
         // the on-disk SHA, in addition to the in-payload SHA verdict.

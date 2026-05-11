@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Optar Browser Edition</title>
+<title>Sloptar Browser Edition</title>
 <style>
   :root {
     --bg: #f5f5f5;
@@ -139,7 +139,7 @@
 </head>
 <body>
 
-<h1>Optar &mdash; Browser Edition</h1>
+<h1>Sloptar &mdash; Browser Edition</h1>
 <div class="sub">Encode any file as a 2D paper barcode. Print, scan later, decode.</div>
 
 <div class="tabs">
@@ -157,7 +157,7 @@
     </div>
     <div class="field">
       <label for="enc-label">Label (printed at bottom)</label>
-      <input type="text" id="enc-label" value="optar_out" maxlength="40">
+      <input type="text" id="enc-label" value="sloptar_out" maxlength="40">
     </div>
     <button class="primary" id="enc-go" disabled>Encode</button>
   </div>
@@ -227,7 +227,7 @@
     </div>
   </div>
   <div class="sub">
-    Defaults match the original Optar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
+    Defaults match the original Sloptar layout (XCROSSES=65, YCROSSES=93, CHALF=3, CPITCH=24).
     Decoder uses the format string to read XCROSSES/YCROSSES; other parameters are fixed.
     <strong>Fit to screen</strong> auto-sizes each page to fit the current window so a screenshot
     captures the whole page without scrolling — handy when you can't print.
@@ -235,10 +235,10 @@
 </section>
 
 <section id="tab-help" class="panel hidden help-content">
-  <h2>Optar Browser Edition &mdash; How-To Guide</h2>
-  <h3>What is Optar?</h3>
+  <h2>Sloptar Browser Edition &mdash; How-To Guide</h2>
+  <h3>What is Sloptar?</h3>
   <p>
-    Optar (OPTical ARchiver) encodes any file as a pattern of dots on paper.
+    Sloptar (OPTical ARchiver) encodes any file as a pattern of dots on paper.
     Print the pattern with a laser printer. To recover the file later, scan
     the paper and decode. Each A4/Letter page holds approximately 200 KB.
     Error correction (BCH(63,45,t=3) code) makes it resilient to paper
@@ -292,12 +292,12 @@
 
 <div id="print-host"></div>
 
-<script src="optar-codec.js"></script>
-<script src="optar-render.js"></script>
+<script src="sloptar-codec.js"></script>
+<script src="sloptar-render.js"></script>
 <script>
 'use strict';
-// All FEC/codec logic lives in optar-codec.js (pure, browser+Node).
-// All DOM/canvas helpers live in optar-render.js (browser-only).
+// All FEC/codec logic lives in sloptar-codec.js (pure, browser+Node).
+// All DOM/canvas helpers live in sloptar-render.js (browser-only).
 // This script wires the UI to those modules — no algorithm code here.
 
 const {
@@ -306,11 +306,11 @@ const {
   wrapWithHeader, unwrapHeader,
   buildFormatString, parseFormatString,
   stitchFrames,
-} = window.OPTAR;
+} = window.SLOPTAR;
 const {
   renderPageToCanvas, readFileAsBytes, readFileAsImageData,
   extractVideoFrames, recordPagesToVideo,
-} = window.OPTAR_RENDER;
+} = window.SLOPTAR_RENDER;
 
 const $ = (id) => document.getElementById(id);
 
@@ -508,7 +508,7 @@ encGo.addEventListener('click', async () => {
         canvas.toBlob(blob => {
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = `${labelBase || 'optar'}_${String(pageNumber).padStart(4, '0')}.png`;
+          a.download = `${labelBase || 'sloptar'}_${String(pageNumber).padStart(4, '0')}.png`;
           a.click();
           setTimeout(() => URL.revokeObjectURL(a.href), 4000);
         }, 'image/png');
@@ -571,7 +571,7 @@ encGo.addEventListener('click', async () => {
           const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = `${labelBase || 'optar'}.${ext}`;
+          a.download = `${labelBase || 'sloptar'}.${ext}`;
           a.click();
           setTimeout(() => URL.revokeObjectURL(a.href), 4000);
           vidStatus.textContent =
@@ -767,7 +767,7 @@ decGo.addEventListener('click', async () => {
   }
 });
 
-window.OPTAR_READY = true;
+window.SLOPTAR_READY = true;
 </script>
 </body>
 </html>

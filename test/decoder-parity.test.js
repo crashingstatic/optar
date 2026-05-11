@@ -11,7 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -29,7 +29,7 @@ async function runAll() {
   const page = await browser.newPage();
   page.on('pageerror', e => console.error('[pageerror]', e.message));
   await page.goto('file://' + HTML_PATH, { waitUntil: 'load' });
-  await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
+  await page.waitForFunction('window.SLOPTAR_READY === true', { timeout: 10000 });
 
   let passed = 0, failed = 0;
   for (const t of tests) {
@@ -62,8 +62,8 @@ function makeInput(N) {
 }
 function encodeAtScale(input, scale, settings) {
   settings = settings || { xcrosses: 33, ycrosses: 47 }; // smaller page = faster test
-  const enc = OPTAR.encodeBytes(input, settings);
-  const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'parity' });
+  const enc = SLOPTAR.encodeBytes(input, settings);
+  const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'parity' });
   return { enc, canvas };
 }
 function compare(decBytes, input) {
@@ -200,7 +200,7 @@ test('decoder: white-margin padding (translated, no rotation)', async (page) => 
       const { enc, canvas } = encodeAtScale(input, 3);
       const padded = applyTransform(canvas, { padW: 80, padH: 80 });
       const id = padded.getContext('2d').getImageData(0, 0, padded.width, padded.height);
-      const dec = OPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4] };
     })()
   `);
@@ -217,7 +217,7 @@ test('decoder: small rotation (1°)', async (page) => {
       const { enc, canvas } = encodeAtScale(input, 4);
       const rotated = applyTransform(canvas, { rotate: 1, padW: 60, padH: 60, smooth: true });
       const id = rotated.getContext('2d').getImageData(0, 0, rotated.width, rotated.height);
-      const dec = OPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4],
                errors: dec.stats.errors };
     })()
@@ -235,7 +235,7 @@ test('decoder: 2° rotation with padding', async (page) => {
       const { enc, canvas } = encodeAtScale(input, 4);
       const rotated = applyTransform(canvas, { rotate: 2, padW: 80, padH: 80, smooth: true });
       const id = rotated.getContext('2d').getImageData(0, 0, rotated.width, rotated.height);
-      const dec = OPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4],
                errors: dec.stats.errors };
     })()
@@ -258,7 +258,7 @@ test('decoder: 15% brightness gradient (uneven scanner light)', async (page) => 
       injectGradient(id, 0.85);
       padded.getContext('2d').putImageData(id, 0, 0);
       const id2 = padded.getContext('2d').getImageData(0, 0, padded.width, padded.height);
-      const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4],
                errors: dec.stats.errors };
     })()
@@ -278,7 +278,7 @@ test('decoder: gaussian noise σ=10 (typical scan grain)', async (page) => {
       injectGaussianNoise(id, 10);
       canvas.getContext('2d').putImageData(id, 0, 0);
       const id2 = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4],
                errors: dec.stats.errors };
     })()
@@ -311,7 +311,7 @@ test('decoder: phone-of-monitor (rot + skew + defocus + moiré + noise)', async 
       cv.getContext('2d').putImageData(id, 0, 0);
       const id2 = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);
 
-      const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
       let mm = 0;
       for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
       return {
@@ -336,7 +336,7 @@ test('decoder: rotation + padding + noise (combined)', async (page) => {
       injectGaussianNoise(id, 10);
       rotated.getContext('2d').putImageData(id, 0, 0);
       const id2 = rotated.getContext('2d').getImageData(0, 0, rotated.width, rotated.height);
-      const dec = OPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
+      const dec = SLOPTAR.decodeImageData(id2, { xcrosses: 33, ycrosses: 47 });
       return { mm: compare(dec.bytes, input), irreparable: dec.stats.errors[4],
                errors: dec.stats.errors };
     })()

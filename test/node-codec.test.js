@@ -1,4 +1,4 @@
-// Node-direct codec test: requires optar-codec.js as a CommonJS module and
+// Node-direct codec test: requires sloptar-codec.js as a CommonJS module and
 // proves the codec works without any browser, canvas, or DOM at all. The
 // decoder takes a structurally-typed ImageData ({width, height, data}); we
 // build one by hand from the encoder's page-cells array, no image library
@@ -7,7 +7,7 @@
 
 const path = require('path');
 const crypto = require('crypto');
-const optar = require(path.resolve(__dirname, '..', 'browser', 'optar-codec.js'));
+const optar = require(path.resolve(__dirname, '..', 'browser', 'sloptar-codec.js'));
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -126,7 +126,7 @@ test('OPTR (legacy) payloads still decode after the OPTZ feature lands', async (
   const digest = await optar.sha256Bytes(fileBytes);
   const name = Buffer.from('legacy.txt');
   const optr = Buffer.concat([
-    Buffer.from(optar.OPTAR_HEADER_MAGIC),
+    Buffer.from(optar.SLOPTAR_HEADER_MAGIC),
     Buffer.from(digest),
     name,
     Buffer.from([0]),

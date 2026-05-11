@@ -8,7 +8,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 
 const VIEWPORTS = [
   { name: '4K',       width: 3840, height: 2160, scale: 3 },
@@ -32,7 +32,7 @@ const VIEWPORTS = [
     page.on('pageerror', e => console.error(`[${v.name} pageerror]`, e.message));
 
     await page.goto('file://' + HTML_PATH, { waitUntil: 'load' });
-    await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
+    await page.waitForFunction('window.SLOPTAR_READY === true', { timeout: 10000 });
 
     // Set scale, switch to Fit to screen, read computed dimensions.
     const fit = await page.evaluate((scale) => {
@@ -43,7 +43,7 @@ const VIEWPORTS = [
       sel.dispatchEvent(new Event('change'));
       const x = parseInt(document.getElementById('set-xcrosses').value, 10);
       const y = parseInt(document.getElementById('set-ycrosses').value, 10);
-      const geom = OPTAR.makeGeometry(x, y);
+      const geom = SLOPTAR.makeGeometry(x, y);
       return {
         x, y,
         canvasW: geom.WIDTH * scale,
@@ -65,10 +65,10 @@ const VIEWPORTS = [
       const input = new Uint8Array(bytesArr);
       const xc = parseInt(document.getElementById('set-xcrosses').value, 10);
       const yc = parseInt(document.getElementById('set-ycrosses').value, 10);
-      const enc = OPTAR.encodeBytes(input, { xcrosses: xc, ycrosses: yc });
-      const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'fit' });
+      const enc = SLOPTAR.encodeBytes(input, { xcrosses: xc, ycrosses: yc });
+      const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, scale, { label: 'fit' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      const dec = OPTAR.decodeImageData(id, { xcrosses: xc, ycrosses: yc });
+      const dec = SLOPTAR.decodeImageData(id, { xcrosses: xc, ycrosses: yc });
       const out = dec.bytes.subarray(0, input.length);
       // Cheap sha256 in browser via SubtleCrypto
       return crypto.subtle.digest('SHA-256', out).then(h => {

@@ -1,6 +1,6 @@
-// optar-render.js — browser-only DOM/canvas helpers for Optar.
+// sloptar-render.js — browser-only DOM/canvas helpers for Sloptar.
 //
-// Depends on window.OPTAR (load optar-codec.js first). Provides:
+// Depends on window.SLOPTAR (load sloptar-codec.js first). Provides:
 //   renderPageToCanvas(cells, geom, scale, opts)   — cells → HTMLCanvasElement
 //   readFileAsBytes(file)                          — File/Blob → Uint8Array
 //   readFileAsImageData(file)                      — image File → ImageData
@@ -13,10 +13,10 @@
 (function () {
   'use strict';
 
-  if (typeof window === 'undefined' || !window.OPTAR) {
-    throw new Error('optar-render.js requires window.OPTAR (load optar-codec.js first)');
+  if (typeof window === 'undefined' || !window.SLOPTAR) {
+    throw new Error('sloptar-render.js requires window.SLOPTAR (load sloptar-codec.js first)');
   }
-  const { BORDER, CHALF, TEXT_HEIGHT, paletteFor } = window.OPTAR;
+  const { BORDER, CHALF, TEXT_HEIGHT, paletteFor } = window.SLOPTAR;
 
   // --------------------------------------------------------------------------
   // Render a page-cells Uint8Array (1 byte/cell, 0=black, 0xff=white) to a
@@ -321,7 +321,7 @@
     return { blob: new Blob(chunks, { type: mimeType }), mimeType, durationS };
   }
 
-  window.OPTAR_RENDER = {
+  window.SLOPTAR_RENDER = {
     renderPageToCanvas,
     readFileAsBytes,
     readFileAsImageData,

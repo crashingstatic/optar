@@ -1,4 +1,4 @@
-// Puppeteer test suite for browser/optar.html (BCH(63, 45, t=3) only).
+// Puppeteer test suite for browser/sloptar.html (BCH(63, 45, t=3) only).
 
 'use strict';
 
@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'optar.html');
+const HTML_PATH = path.resolve(__dirname, '..', 'browser', 'sloptar.html');
 const FIXTURES = path.resolve(__dirname, 'fixtures');
 const VERBOSE = process.env.VERBOSE === '1';
 
@@ -40,7 +40,7 @@ async function runAll() {
   });
 
   await page.goto('file://' + HTML_PATH, { waitUntil: 'load' });
-  await page.waitForFunction('window.OPTAR_READY === true', { timeout: 10000 });
+  await page.waitForFunction('window.SLOPTAR_READY === true', { timeout: 10000 });
 
   let passed = 0, failed = 0;
   const startAll = Date.now();
@@ -71,8 +71,8 @@ test('bch round-trip: 1000 random 45-bit data words', async (page) => {
       const hi = Math.floor(Math.random() * (1 << 13));
       const lo = Math.floor(Math.random() * 0x100000000);
       const data = (BigInt(hi) << 32n) | BigInt(lo >>> 0);
-      const code = OPTAR.bchEncode(data);
-      const dec = OPTAR.bchDecode(code);
+      const code = SLOPTAR.bchEncode(data);
+      const dec = SLOPTAR.bchDecode(code);
       if (BigInt(dec.data) !== data || dec.errors !== 0) mismatches++;
     }
     return mismatches;
@@ -98,8 +98,8 @@ test('bch corrects 1, 2, and 3-bit errors', async (page) => {
         const hi = Math.floor(Math.random() * (1 << 13));
         const lo = Math.floor(Math.random() * 0x100000000);
         const data = (BigInt(hi) << 32n) | BigInt(lo >>> 0);
-        const code = OPTAR.bchEncode(data);
-        const dec = OPTAR.bchDecode(flip(code, k));
+        const code = SLOPTAR.bchEncode(data);
+        const dec = SLOPTAR.bchDecode(flip(code, k));
         if (!dec.reparable || BigInt(dec.data) !== data || dec.errors !== k) bad++;
       }
       stats[k] = bad;
@@ -125,7 +125,7 @@ test('bch flags many 4+ bit errors as irreparable', async (page) => {
       const hi = Math.floor(Math.random() * (1 << 13));
       const lo = Math.floor(Math.random() * 0x100000000);
       const data = (BigInt(hi) << 32n) | BigInt(lo >>> 0);
-      const dec = OPTAR.bchDecode(flip(OPTAR.bchEncode(data), 4 + rand(8)));
+      const dec = SLOPTAR.bchDecode(flip(SLOPTAR.bchEncode(data), 4 + rand(8)));
       if (!dec.reparable) irreparable++;
     }
     return { irreparable, trials };
@@ -144,8 +144,8 @@ test('interleave / deinterleave round-trip', async (page) => {
       const lo = Math.floor(Math.random() * 0x100000000);
       codewords.push((BigInt(hi) << 32n) | BigInt(lo >>> 0));
     }
-    const bits = OPTAR.interleaveBits(codewords, FEC_SYMS);
-    const recovered = OPTAR.deinterleaveBits(bits, FEC_SYMS);
+    const bits = SLOPTAR.interleaveBits(codewords, FEC_SYMS);
+    const recovered = SLOPTAR.deinterleaveBits(bits, FEC_SYMS);
     let mm = 0;
     for (let i = 0; i < FEC_SYMS; i++) if (recovered[i] !== codewords[i]) mm++;
     return { mm, length: bits.length };
@@ -161,11 +161,11 @@ test('encode-decode round-trip (clean, 1 KB random)', async (page) => {
     const N = 1024;
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
-    const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'test' });
+    const enc = SLOPTAR.encodeBytes(input);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'test' });
     const ctx = canvas.getContext('2d');
     const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(id);
+    const dec = SLOPTAR.decodeImageData(id);
     let mm = 0;
     for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
     return { mm, irreparable: dec.stats.errors[4], pages: enc.nPages };
@@ -180,8 +180,8 @@ test('encode-decode round-trip (noisy salt-pepper)', async (page) => {
     const N = 1024;
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
-    const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'noisy' });
+    const enc = SLOPTAR.encodeBytes(input);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'noisy' });
     const ctx = canvas.getContext('2d');
     const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = id.data;
@@ -196,7 +196,7 @@ test('encode-decode round-trip (noisy salt-pepper)', async (page) => {
     }
     ctx.putImageData(id, 0, 0);
     const corrupted = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(corrupted);
+    const dec = SLOPTAR.decodeImageData(corrupted);
     let mm = 0;
     for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
     return { mm, flipped, stats: dec.stats.errors };
@@ -214,16 +214,16 @@ test('multi-page round-trip (400 KB)', async (page) => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
       input[i] = seed & 0xff;
     }
-    const enc = OPTAR.encodeBytes(input);
+    const enc = SLOPTAR.encodeBytes(input);
     const decoded = new Uint8Array(N);
     let off = 0, irreparable = 0;
     // Per-page user bits with CRC mode aren't byte-aligned, so the decoder
     // needs a shared `state` to thread bit-fragments across pages.
     const state = { payloadAccu: 1 };
     for (const cells of enc.pages) {
-      const canvas = OPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, { label: 'page' });
+      const canvas = SLOPTAR_RENDER.renderPageToCanvas(cells, enc.geom, 1, { label: 'page' });
       const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-      const dec = OPTAR.decodeImageData(id, { state });
+      const dec = SLOPTAR.decodeImageData(id, { state });
       irreparable += dec.stats.errors[4];
       const take = Math.min(N - off, dec.bytes.length);
       decoded.set(dec.bytes.subarray(0, take), off);
@@ -245,10 +245,10 @@ test('settings: smaller page (XCROSSES=33, YCROSSES=47)', async (page) => {
     const N = 256;
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = i;
-    const enc = OPTAR.encodeBytes(input, settings);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 't' });
+    const enc = SLOPTAR.encodeBytes(input, settings);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 't' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(id, settings);
+    const dec = SLOPTAR.decodeImageData(id, settings);
     let mm = 0;
     for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
     return { mm, irreparable: dec.stats.errors[4] };
@@ -259,17 +259,17 @@ test('settings: smaller page (XCROSSES=33, YCROSSES=47)', async (page) => {
 
 test('edge case: empty file', async (page) => {
   const r = await page.evaluate(() =>
-    ({ pages: OPTAR.encodeBytes(new Uint8Array(0)).nPages }));
+    ({ pages: SLOPTAR.encodeBytes(new Uint8Array(0)).nPages }));
   assertEqual(r.pages, 1);
 });
 
 test('edge case: 1-byte file', async (page) => {
   const r = await page.evaluate(() => {
     const input = new Uint8Array([0xa5]);
-    const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'x' });
+    const enc = SLOPTAR.encodeBytes(input);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'x' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(id);
+    const dec = SLOPTAR.decodeImageData(id);
     return { first: dec.bytes[0], irreparable: dec.stats.errors[4] };
   });
   assertEqual(r.first, 0xa5);
@@ -278,13 +278,13 @@ test('edge case: 1-byte file', async (page) => {
 
 test('edge case: file at exact page boundary', async (page) => {
   const r = await page.evaluate(() => {
-    const geom = OPTAR.makeGeometry(65, 93);
+    const geom = SLOPTAR.makeGeometry(65, 93);
     // CRC mode reserves one BCH codeword per page for the CRC32 of the
     // page's user-data bits; user capacity is (FEC_SYMS-1)*BCH_K bits.
     const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8);
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 7) & 0xff;
-    const enc = OPTAR.encodeBytes(input);
+    const enc = SLOPTAR.encodeBytes(input);
     return { pages: enc.nPages, n: N };
   });
   assertEqual(r.pages, 1, `${r.n}-byte file must use one page`);
@@ -292,11 +292,11 @@ test('edge case: file at exact page boundary', async (page) => {
 
 test('edge case: one byte over page boundary spills to two pages', async (page) => {
   const r = await page.evaluate(() => {
-    const geom = OPTAR.makeGeometry(65, 93);
+    const geom = SLOPTAR.makeGeometry(65, 93);
     const N = Math.floor((geom.FEC_SYMS - 1) * 45 / 8) + 1;
     const input = new Uint8Array(N);
     input[input.length - 1] = 0xee;
-    return { pages: OPTAR.encodeBytes(input).nPages };
+    return { pages: SLOPTAR.encodeBytes(input).nPages };
   });
   assertEqual(r.pages, 2);
 });
@@ -306,10 +306,10 @@ test('scale=3 round-trip (UI default)', async (page) => {
     const N = 256;
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 13 + 7) & 0xff;
-    const enc = OPTAR.encodeBytes(input);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 3, { label: 'scale3' });
+    const enc = SLOPTAR.encodeBytes(input);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 3, { label: 'scale3' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(id);
+    const dec = SLOPTAR.decodeImageData(id);
     let mm = 0;
     for (let i = 0; i < N; i++) if (dec.bytes[i] !== input[i]) mm++;
     return { mm, irreparable: dec.stats.errors[4] };
@@ -327,15 +327,15 @@ test('header: wrap/unwrap round-trip preserves bytes + filename + hash', async (
     // Goes through the OPTZ (gzip) branch.
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (i * 13 + 7) & 0xff;
-    const wrapped = await OPTAR.wrapWithHeader(input, 'hello.bin');
-    const u = await OPTAR.unwrapHeader(wrapped);
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'hello.bin');
+    const u = await SLOPTAR.unwrapHeader(wrapped);
     let bodyMatch = u.body.length === N;
     for (let i = 0; bodyMatch && i < N; i++) if (u.body[i] !== input[i]) bodyMatch = false;
     // Incompressible input: cryptographic-quality random. Falls back to OPTR.
     const incompressible = new Uint8Array(N);
     crypto.getRandomValues(incompressible);
-    const w2 = await OPTAR.wrapWithHeader(incompressible, 'hello.bin');
-    const u2 = await OPTAR.unwrapHeader(w2);
+    const w2 = await SLOPTAR.wrapWithHeader(incompressible, 'hello.bin');
+    const u2 = await SLOPTAR.unwrapHeader(w2);
     return {
       hasHeader: u.hasHeader,
       filename: u.filename,
@@ -361,7 +361,7 @@ test('header: wrap/unwrap round-trip preserves bytes + filename + hash', async (
 test('header: unwrap on raw bytes (no magic) → hasHeader=false', async (page) => {
   const r = await page.evaluate(async () => {
     const raw = new Uint8Array([1, 2, 3, 4, 5]);
-    const u = await OPTAR.unwrapHeader(raw);
+    const u = await SLOPTAR.unwrapHeader(raw);
     return { hasHeader: u.hasHeader, bodyLen: u.body.length };
   });
   assertEqual(r.hasHeader, false);
@@ -371,10 +371,10 @@ test('header: unwrap on raw bytes (no magic) → hasHeader=false', async (page) 
 test('header: tampered body fails hash check', async (page) => {
   const r = await page.evaluate(async () => {
     const input = new Uint8Array([1, 2, 3, 4]);
-    const wrapped = await OPTAR.wrapWithHeader(input, 'a');
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'a');
     // Flip one body byte (after the header).
     wrapped[wrapped.length - 1] ^= 0x01;
-    const u = await OPTAR.unwrapHeader(wrapped);
+    const u = await SLOPTAR.unwrapHeader(wrapped);
     return { hasHeader: u.hasHeader, hashOk: u.hashOk };
   });
   assert(r.hasHeader);
@@ -386,12 +386,12 @@ test('header: end-to-end via encode/decode preserves filename + hash', async (pa
     const N = 256;
     const input = new Uint8Array(N);
     for (let i = 0; i < N; i++) input[i] = (Math.random() * 256) | 0;
-    const wrapped = await OPTAR.wrapWithHeader(input, 'recovered.png');
-    const enc = OPTAR.encodeBytes(wrapped);
-    const canvas = OPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'h' });
+    const wrapped = await SLOPTAR.wrapWithHeader(input, 'recovered.png');
+    const enc = SLOPTAR.encodeBytes(wrapped);
+    const canvas = SLOPTAR_RENDER.renderPageToCanvas(enc.pages[0], enc.geom, 1, { label: 'h' });
     const id = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
-    const dec = OPTAR.decodeImageData(id);
-    const u = await OPTAR.unwrapHeader(dec.bytes);
+    const dec = SLOPTAR.decodeImageData(id);
+    const u = await SLOPTAR.unwrapHeader(dec.bytes);
     let match = u.body && u.body.length >= N;
     for (let i = 0; match && i < N; i++) if (u.body[i] !== input[i]) match = false;
     return { filename: u.filename, hashOk: u.hashOk, match };
@@ -403,9 +403,9 @@ test('header: end-to-end via encode/decode preserves filename + hash', async (pa
 
 test('format string round-trip', async (page) => {
   const r = await page.evaluate(() => {
-    const geom = OPTAR.makeGeometry(65, 93);
-    const f = OPTAR.buildFormatString(geom, 1, 1, 'foo');
-    return { f, parsed: OPTAR.parseFormatString(f) };
+    const geom = SLOPTAR.makeGeometry(65, 93);
+    const f = SLOPTAR.buildFormatString(geom, 1, 1, 'foo');
+    return { f, parsed: SLOPTAR.parseFormatString(f) };
   });
   assert(r.f.startsWith('0-65-93-24-3-11-2-24'), `unexpected format: ${r.f}`);
   assertEqual(r.parsed.xcrosses, 65);
@@ -414,7 +414,7 @@ test('format string round-trip', async (page) => {
 
 test('page capacity matches BCH(63, 45) at A4 default', async (page) => {
   const r = await page.evaluate(() => {
-    const geom = OPTAR.makeGeometry(65, 93);
+    const geom = SLOPTAR.makeGeometry(65, 93);
     return { fecSyms: geom.FEC_SYMS, netBytes: geom.NETBITS / 8 };
   });
   // FEC_SYMS = TOTALBITS / 63 = 50736; NETBITS = 50736 * 45 = 2,283,120 bits = 285,390 B.
