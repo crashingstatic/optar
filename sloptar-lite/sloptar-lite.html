@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<meta charset=utf-8>
+<title>Sloptar Lite</title>
+<style>body{font:14px/1.5 system-ui,sans-serif;margin:24px;background:#f5f5f5;color:#111}h1{font-size:1.2em;margin:0 0 2px}.sub{color:#666;font-size:.9em;margin-bottom:14px}#drop{border:2px dashed #aaa;border-radius:6px;padding:20px;text-align:center;background:#fff;margin-bottom:10px;cursor:pointer}#drop.over{border-color:#1a4ea8;background:#eef}#filelist{font-size:.85em;color:#555;margin-bottom:8px;min-height:1.2em}button{background:#1a4ea8;color:#fff;border:0;padding:7px 18px;border-radius:4px;font:inherit;font-weight:600;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}#out{margin-top:14px}.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:.9em}.ok{color:#1c7a3e}.warn{color:#b56600}.bad{color:#b32424}a.dl{display:inline-block;margin-top:8px;padding:5px 14px;background:#1c7a3e;color:#fff;border-radius:4px;text-decoration:none;font-weight:600;font-size:.95em}</style>
+<h1>Sloptar Lite — WCMYK Decoder</h1>
+<div class=sub>Decodes US-Letter (67&times;87) WCMYK sloptar pages from scanned PNG/JPG images. Drop pages in page-number order; filenames are sorted alphanumerically.</div>
+<div id=drop>Drop scanned page images here, or <label for=files style=color:#1a4ea8;cursor:pointer;text-decoration:underline>browse</label>.<input type=file id=files multiple accept=image/png,image/bmp,image/jpeg style=display:none></div>
+<div id=filelist></div><button id=go disabled>Decode</button><div id=out></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const BO=2,CH=3,CP=24,TH=24,BN=63,BK=45,CB=16,CC=7,PW=16,PH=20,SW=.1,WC=.06,CT=.75,FS=.25;
+const PAL=[[255,255,255],[0,255,255],[255,0,255],[255,255,0],[0,0,0]];
+const XC=67,YC=87;
+
+const Ex=new Uint8Array(64),Lg=new Int8Array(64);
+{let x=1;for(let i=0;i<63;i++){Ex[i]=x;Lg[x]=i;x<<=1;if(x&64)x^=0x43;}Ex[63]=Ex[0];Lg[0]=-1;}
+const gm=(a,b)=>(a&&b)?Ex[(Lg[a]+Lg[b])%BN]:0;
+const gd=(a,b)=>a?Ex[((Lg[a]-Lg[b])%BN+BN)%BN]:0;
+
+function bS(r){
+  const s=[0,0,0,0,0,0,0];
+  for(let j=62;j>=0;j--){const c=Number((r>>BigInt(j))&1n);for(let k=1;k<=6;k++)s[k]=gm(s[k],Ex[k])^c;}
+  return s;
+}
+function bchDec(recv){
+  const r=BigInt(recv);
+  const S=bS(r);
+  if(!S[1]&&!S[2]&&!S[3]&&!S[4]&&!S[5]&&!S[6])return{data:Number(r>>18n),errors:0,reparable:true};
+  const d3x=a=>
+    gm(a[0][0],gm(a[1][1],a[2][2])^gm(a[1][2],a[2][1]))^
+    gm(a[0][1],gm(a[1][0],a[2][2])^gm(a[1][2],a[2][0]))^
+    gm(a[0][2],gm(a[1][0],a[2][1])^gm(a[1][1],a[2][0]));
+  const m=[[S[1],S[2],S[3]],[S[2],S[3],S[4]],[S[3],S[4],S[5]]];
+  let lam=null;
+  const d3=d3x(m);
+  if(d3){
+    const rhs=[S[4],S[5],S[6]];
+    const sub=c=>m.map((row,ri)=>row.map((v,ci)=>ci===c?rhs[ri]:v));
+    lam=[1,gd(d3x(sub(2)),d3),gd(d3x(sub(1)),d3),gd(d3x(sub(0)),d3)];
+  }else{
+    const d2=gm(S[1],S[3])^gm(S[2],S[2]);
+    if(d2)lam=[1,gd(gm(S[1],S[4])^gm(S[2],S[3]),d2),gd(gm(S[2],S[4])^gm(S[3],S[3]),d2)];
+    else if(S[1])lam=[1,gd(S[2],S[1])];
+  }
+  if(!lam)return{data:Number(r>>18n),errors:4,reparable:false};
+  const errs=[];
+  for(let j=0;j<BN;j++){
+    let v=0;const nj=(BN-j)%BN;
+    for(let k=0;k<lam.length;k++)if(lam[k])v^=gm(lam[k],Ex[(k*nj)%BN]);
+    if(!v)errs.push(j);
+  }
+  if(errs.length!==lam.length-1)return{data:Number(r>>18n),errors:4,reparable:false};
+  let c=r;for(const j of errs)c^=1n<<BigInt(j);
+  return{data:Number(c>>18n),errors:errs.length,reparable:true};
+}
+
+const CK=new Uint32Array(256);
+for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;CK[i]=c>>>0;}
+function mC(){
+  let a=0xFFFFFFFF,buf=0,nb=0;
+  return{
+    bit(x){buf=((buf<<1)|(x&1))&0xFF;if(++nb===8){a=(a>>>8)^CK[(a^buf)&0xFF];buf=0;nb=0;}},
+    end(){if(nb)a=(a>>>8)^CK[(a^(buf<<(8-nb)))&0xFF];return(a^0xFFFFFFFF)>>>0;}
+  };
+}
+
+const G=(()=>{
+  const DW=CP*(XC-1)+2*CH,DH=CP*(YC-1)+2*CH;
+  const W=2*BO+DW,H=2*BO+DH+TH;
+  const NH=2*CH,GW=CP-2*CH,NW=GW*(XC-1),NP=NH*NW;
+  const WH=GW,WW=W-2*BO,WP=WH*WW;
+  const RH=NH+WH,RP=WP+NP,TB=RP*(YC-1)+NP;
+  const FSYMS=Math.floor(Math.floor(TB/CC)*CB/BN);
+  const pY=BO+DH+2,patches=[];
+  for(let k=0;k<5;k++){const r=W-2-k*(PW+2);patches.unshift({x0:r-PW,y0:pY,x1:r,y1:pY+PH});}
+  return{W,H,NH,GW,NW,NP,WH,WW,WP,RH,RP,TB,FSYMS,patches};
+})();
+
+function s2xy(seq,out){
+  if(seq>=G.TB){out[0]=out[1]=-1;return;}
+  const rep=(seq/G.RP)|0;let s=seq-rep*G.RP,y=G.RH*rep,x;
+  if(s>=G.NP){
+    y+=G.NH;s-=G.NP;const q=(s/G.WW)|0;y+=q;x=s-q*G.WW;
+  }else{
+    x=2*CH;const qy=(s/G.NW)|0;y+=qy;s-=qy*G.NW;
+    const g=(s/G.GW)|0;x+=g*CP+s-g*G.GW;
+  }
+  out[0]=x;out[1]=y;
+}
+
+const tG=id=>{const d=id.data,n=id.width*id.height,o=new Uint8Array(n);for(let i=0,j=0;i<n;i++,j+=4)o[i]=(d[j]*299+d[j+1]*587+d[j+2]*114+500)/1000|0;return o;};
+const tC=(id,c)=>{const d=id.data,n=id.width*id.height,o=new Uint8Array(n);for(let i=0,j=c;i<n;i++,j+=4)o[i]=d[j];return o;};
+function rP(id){
+  const W=id.width,d=id.data,sc=W/G.W,out=[];
+  for(let k=0;k<5;k++){
+    const p=G.patches[k];
+    const px0=Math.round(p.x0*sc),py0=Math.round(p.y0*sc),px1=Math.round(p.x1*sc),py1=Math.round(p.y1*sc);
+    let r=0,g=0,b=0,cnt=0;
+    for(let py=py0;py<py1;py++)for(let px=px0;px<px1;px++){const i=(py*W+px)*4;r+=d[i];g+=d[i+1];b+=d[i+2];cnt++;}
+    out.push(cnt?[r/cnt,g/cnt,b/cnt]:PAL[k].slice());
+  }
+  return out;
+}
+
+function aC(gray){
+  const h=new Uint32Array(256),n=gray.length;
+  for(let i=0;i<n;i++)h[gray[i]]++;
+  let tot=0;for(let i=0;i<n;i++)tot+=gray[i];
+  let cut=(tot/n)|0;
+  for(let it=0;it<32;it++){
+    const last=cut;let wr=0,br=0,wp=0,bp=0;
+    for(let i=0;i<cut;i++){const d=cut-i;br+=h[i]*d*d;bp+=h[i];}
+    for(let i=cut+1;i<256;i++){const d=i-cut;wr+=h[i]*d*d;wp+=h[i];}
+    if(wp)wr=Math.sqrt(wr/wp);if(bp)br=Math.sqrt(br/bp);
+    cut=Math.floor((cut+wr)*SW+(cut-br)*(1-SW)+.5);
+    if(cut===last)break;
+  }
+  return cut;
+}
+const gx=(gr,W,H,x,y)=>(x<0||y<0||x>=W||y>=H)?0xff:gr[x+y*W];
+function dS(gr,W,H,xs,ys,dx,dy,cut){
+  const lim=Math.min(W,H);
+  for(let xb=xs,len=1;(dx>0?xb<lim:xb>=0)&&len<=lim;xb+=dx,len++)
+    for(let x=xb,y=ys,c=len;c>0;c--,x-=dx,y+=dy)
+      if(x>=0&&y>=0&&x<W&&y<H&&gr[x+y*W]<cut)return[x,y];
+  return null;
+}
+function fC(gr,W,H,cut){
+  const ul=dS(gr,W,H,0,0,1,1,cut),ur=dS(gr,W,H,W-1,0,-1,1,cut);
+  const ll=dS(gr,W,H,0,H-1,1,-1,cut),lr=dS(gr,W,H,W-1,H-1,-1,-1,cut);
+  if(!ul||!ur||!ll||!lr)throw new Error('cannot find page corners');
+  return[[ul[0],ul[1]],[ur[0]+1,ur[1]],[ll[0],ll[1]+1],[lr[0]+1,lr[1]+1]];
+}
+function cV(corners){
+  const[ul,ur,ll,lr]=corners;
+  let phx=(ur[0]+lr[0]-ul[0]-ll[0])/2,phy=(ur[1]+lr[1]-ul[1]-ll[1])/2;
+  let pvx=(ll[0]+lr[0]-ul[0]-ur[0])/2,pvy=(ll[1]+lr[1]-ul[1]-ur[1])/2;
+  const hl=Math.hypot(phx,phy),vl=Math.hypot(pvx,pvy);
+  phx/=hl;phy/=hl;pvx/=vl;pvy/=vl;
+  const hp=((ur[0]+lr[0]-ul[0]-ll[0])/2)/G.W,vp=((ll[1]+lr[1]-ul[1]-ur[1])/2)/G.H;
+  const chalf=Math.max(1,Math.floor(Math.min(hp,vp)*CH*.5));
+  const cf=Math.max(1,Math.floor(Math.min(hp*(CH-CT),vp*(CH-CT))));
+  return{phx,phy,pvx,pvy,hp,vp,chalf,cf};
+}
+const bl=(ul,ur,ll,lr,h,v)=>(ur*h+ul*(1-h))*(1-v)+(lr*h+ll*(1-h))*v;
+const pI=(gr,W,H,x,y)=>{
+  const xi=x<0?0:x|0,yi=y<0?0:y|0;
+  return bl(gx(gr,W,H,xi,yi),gx(gr,W,H,xi+1,yi),gx(gr,W,H,xi,yi+1),gx(gr,W,H,xi+1,yi+1),x-xi,y-yi);
+};
+function xr(gr,W,H,v,gc,cx,cy){
+  let s=0;const ch=v.cf;
+  for(let dy=0;dy<ch;dy++)for(let dx=0;dx<ch;dx++){
+    s-=pI(gr,W,H,cx+dx,cy+dy)-gc;s-=pI(gr,W,H,cx-1-dx,cy-1-dy)-gc;
+    s+=pI(gr,W,H,cx+dx,cy-1-dy)-gc;s+=pI(gr,W,H,cx-1-dx,cy+dy)-gc;
+  }
+  return s;
+}
+function rX(gr,W,H,v,gc,co){
+  const{phx,phy,pvx,pvy,chalf:ch}=v;
+  let bx=co[0],by=co[1],best=xr(gr,W,H,v,gc,bx,by);
+  for(let xo=-ch;xo<=ch;xo++)for(let yo=-ch;yo<=ch;yo++){
+    const sx=co[0]+xo*phx+yo*pvx,sy=co[1]+xo*phy+yo*pvy;
+    const r=xr(gr,W,H,v,gc,sx,sy);if(r>best){best=r;bx=sx;by=sy;}
+  }
+  const HR=(0.5/FS)|0;let fx=bx,fy=by;best=xr(gr,W,H,v,gc,fx,fy);
+  for(let xo=-HR;xo<=HR;xo++)for(let yo=-HR;yo<=HR;yo++){
+    const sx=bx+xo*FS*phx+yo*FS*pvx,sy=by+xo*FS*phy+yo*FS*pvy;
+    const r=xr(gr,W,H,v,gc,sx,sy);if(r>best){best=r;fx=sx;fy=sy;}
+  }
+  co[0]=fx;co[1]=fy;
+}
+function cS(gr,W,H,v,gc,cx,cy){
+  const hh=Math.floor(v.hp*(CH-CT)),vh=Math.floor(v.vp*(CH-CT));
+  let wr=0,br=0,wp=0,bp=0;
+  for(let xo=-hh;xo<=hh;xo++)for(let yo=-vh;yo<=vh;yo++){
+    const val=pI(gr,W,H,cx+xo*v.phx+yo*v.pvx,cy+xo*v.phy+yo*v.pvy);
+    if(val>gc){const d=val-gc;wr+=d*d;wp++;}
+    else if(val<gc){const d=val-gc;br+=d*d;bp++;}
+  }
+  return(!wp||!bp)?gc:(gc+Math.sqrt(wr/wp))*WC+(gc-Math.sqrt(br/bp))*(1-WC);
+}
+function sX(gr,W,H,corners,v,gc){
+  const crosses=Array.from({length:XC},()=>Array.from({length:YC},()=>[0,0]));
+  const cuts=Array.from({length:XC},()=>new Float32Array(YC));
+  const[ul,ur,ll,lr]=corners;
+  const rx=((ur[0]+lr[0]-ul[0]-ll[0])/2)*CP/G.W;
+  const ry=((ur[1]+lr[1]-ul[1]-ll[1])/2)*CP/G.W;
+  const dx=((ll[0]+lr[0]-ul[0]-ur[0])/2)*CP/G.H;
+  const dy=((ll[1]+lr[1]-ul[1]-ur[1])/2)*CP/G.H;
+  const fx=(BO+CH)/G.W,fy=(BO+CH)/G.H;
+  crosses[0][0][0]=bl(ul[0],ur[0],ll[0],lr[0],fx,fy);
+  crosses[0][0][1]=bl(ul[1],ur[1],ll[1],lr[1],fx,fy);
+  for(let cy=0;cy<YC;cy++)for(let cx=0;cx<XC;cx++){
+    if(cx>0){crosses[cx][cy][0]=crosses[cx-1][cy][0]+rx;crosses[cx][cy][1]=crosses[cx-1][cy][1]+ry;}
+    else if(cy>0){crosses[cx][cy][0]=crosses[cx][cy-1][0]+dx;crosses[cx][cy][1]=crosses[cx][cy-1][1]+dy;}
+    rX(gr,W,H,v,gc,crosses[cx][cy]);
+    cuts[cx][cy]=cS(gr,W,H,v,gc,crosses[cx][cy][0],crosses[cx][cy][1]);
+  }
+  return{crosses,cuts};
+}
+function bD(crosses,cuts,xb,yb,out){
+  let cx=xb<CH?0:((xb-CH)/CP)|0,cy=yb<CH?0:((yb-CH)/CP)|0;
+  if(cx>XC-2)cx=XC-2;if(cy>YC-2)cy=YC-2;
+  const rx=(xb-(cx*CP+CH)+.5)/CP,ry=(yb-(cy*CP+CH)+.5)/CP;
+  const c00=crosses[cx][cy],c10=crosses[cx+1][cy],c01=crosses[cx][cy+1],c11=crosses[cx+1][cy+1];
+  out[0]=bl(c00[0],c10[0],c01[0],c11[0],rx,ry)-.5;
+  out[1]=bl(c00[1],c10[1],c01[1],c11[1],rx,ry)-.5;
+  out[2]=bl(cuts[cx][cy],cuts[cx+1][cy],cuts[cx][cy+1],cuts[cx+1][cy+1],rx,ry);
+}
+
+function decodePage(imgData,state){
+  const W=imgData.width,H=imgData.height;
+  const gray=tG(imgData),gc=aC(gray),corners=fC(gray,W,H,gc),v=cV(corners);
+  const{crosses,cuts}=sX(gray,W,H,corners,v,gc);
+  const chanR=tC(imgData,0),chanG=tC(imgData,1),chanB=tC(imgData,2);
+  const cen=rP(imgData);
+  const cache=new Int32Array(Math.ceil(G.FSYMS*BN/CB)+1).fill(-1);
+  const xy=[0,0],xyc=[0,0,0];
+  function gCh(ci){
+    if(cache[ci]>=0)return cache[ci];
+    let N=0;
+    for(let di=CC-1;di>=0;di--){
+      s2xy(ci*CC+di,xy);bD(crosses,cuts,xy[0],xy[1],xyc);
+      const rs=pI(chanR,W,H,xyc[0],xyc[1]),gs=pI(chanG,W,H,xyc[0],xyc[1]),bs=pI(chanB,W,H,xyc[0],xyc[1]);
+      let bc=0,bd=Infinity;
+      for(let k=0;k<5;k++){const dr=rs-cen[k][0],dg=gs-cen[k][1],db=bs-cen[k][2];const dist=dr*dr+dg*dg+db*db;if(dist<bd){bd=dist;bc=k;}}
+      N=N*5+bc;
+    }
+    if(N>=(1<<CB))N&=(1<<CB)-1;
+    return(cache[ci]=N);
+  }
+  const gBt=seq=>(gCh((seq/CB)|0)>>(CB-1-seq%CB))&1;
+  function rCW(slot){
+    let r=0n;
+    for(let bit=0;bit<BN;bit++)r=(r<<1n)|BigInt(gBt(slot+bit*G.FSYMS));
+    return bchDec(r);
+  }
+  const errs=[0,0,0,0,0];
+  const bytes=[];
+  let accu=state.accu;
+  const crc=mC();
+  for(let s=0;s<G.FSYMS-1;s++){
+    const dec=rCW(s);
+    errs[dec.reparable?Math.min(3,dec.errors):4]++;
+    const d=BigInt(dec.data);
+    for(let sh=BK-1;sh>=0;sh--){
+      const b=Number((d>>BigInt(sh))&1n);
+      crc.bit(b);accu=((accu<<1)|b)&0x1ff;
+      if(accu&0x100){bytes.push(accu&0xff);accu=1;}
+    }
+  }
+  state.accu=accu;
+  const computedCRC=crc.end();
+  const crcCW=rCW(G.FSYMS-1);
+  errs[crcCW.reparable?Math.min(3,crcCW.errors):4]++;
+  const storedCRC=Number(BigInt(crcCW.data)&0xFFFFFFFFn);
+  return{bytes:new Uint8Array(bytes),crcOk:storedCRC===computedCRC,errors:errs};
+}
+
+async function gz(b){
+  const ds=new DecompressionStream('gzip');
+  const w=ds.writable.getWriter();w.write(b);w.close();
+  const rd=ds.readable.getReader();const chunks=[];let tot=0;
+  for(;;){const{value,done}=await rd.read();if(done)break;chunks.push(value);tot+=value.length;}
+  const out=new Uint8Array(tot);let off=0;
+  for(const c of chunks){out.set(c,off);off+=c.length;}
+  return out;
+}
+const sh=async b=>new Uint8Array(await crypto.subtle.digest('SHA-256',b));
+const hX=u8=>[...u8].map(x=>x.toString(16).padStart(2,'0')).join('');
+
+async function unwrapHeader(bytes){
+  if(bytes.length<37)return{hasHeader:false,body:bytes};
+  const b0=bytes[0]===0x4f&&bytes[1]===0x50&&bytes[2]===0x54;
+  const isGz=b0&&bytes[3]===0x5a;
+  if(!b0||(bytes[3]!==0x52&&!isGz))return{hasHeader:false,body:bytes};
+  const sha=bytes.subarray(4,36);
+  let ne=36;while(ne<bytes.length&&bytes[ne]!==0)ne++;
+  if(ne>=bytes.length)return{hasHeader:true,error:'no NUL terminator',body:new Uint8Array(0)};
+  const fname=new TextDecoder('utf-8',{fatal:false}).decode(bytes.subarray(36,ne));
+  const ds=ne+1;
+  let body;
+  if(isGz){
+    if(ds+4>bytes.length)return{hasHeader:true,fname,error:'truncated OPTZ',body:new Uint8Array(0),hashOk:false};
+    const len=(bytes[ds])|(bytes[ds+1]<<8)|(bytes[ds+2]<<16)|(bytes[ds+3]<<24);
+    if(ds+4+len>bytes.length)return{hasHeader:true,fname,error:'truncated body',body:new Uint8Array(0),hashOk:false};
+    try{body=await gz(bytes.subarray(ds+4,ds+4+len));}
+    catch(e){return{hasHeader:true,fname,error:'gunzip: '+e.message,body:new Uint8Array(0),hashOk:false};}
+  }else{
+    let de=bytes.length;while(de>ds&&bytes[de-1]===0)de--;
+    body=bytes.subarray(ds,de);
+  }
+  const comp=await sh(body);
+  let hashOk=true;for(let i=0;i<32;i++)if(comp[i]!==sha[i]){hashOk=false;break;}
+  return{hasHeader:true,fname,sha256:hX(sha),body,hashOk};
+}
+
+function f2d(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{
+      const img=new Image();
+      img.onload=()=>{
+        const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;
+        c.getContext('2d').drawImage(img,0,0);
+        res(c.getContext('2d').getImageData(0,0,c.width,c.height));
+      };
+      img.onerror=()=>rej(new Error('image decode failed'));
+      img.src=fr.result;
+    };
+    fr.onerror=()=>rej(fr.error);
+    fr.readAsDataURL(file);
+  });
+}
+
+const D=$('drop'),FI=$('files'),GO=$('go'),OT=$('out'),LI=$('filelist');
+let PS=[];
+function sF(fl){
+  PS=[...fl].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+  LI.textContent=PS.length?`${PS.length} file(s): ${PS.map(f=>f.name).join(', ')}`:'';
+  GO.disabled=!PS.length;
+}
+D.addEventListener('dragover',e=>{e.preventDefault();D.classList.add('over');});
+D.addEventListener('dragleave',()=>D.classList.remove('over'));
+D.addEventListener('drop',e=>{e.preventDefault();D.classList.remove('over');sF(e.dataTransfer.files);});
+FI.addEventListener('change',()=>sF(FI.files));
+
+GO.addEventListener('click',async()=>{
+  GO.disabled=true;OT.innerHTML='<p>Decoding…</p>';
+  try{
+    const state={accu:1};
+    const combined=[];
+    const cards=[];
+    for(let i=0;i<PS.length;i++){
+      let card=`<div class="card"><b>Page ${i+1}: ${PS[i].name}</b><br>`;
+      try{
+        const id=await f2d(PS[i]);
+        const r=decodePage(id,state);
+        combined.push(...r.bytes);
+        const e=r.errors;
+        card+=`BCH: 0-err:${e[0]} 1-err:${e[1]} 2-err:${e[2]} 3-err:${e[3]}`;
+        if(e[4])card+=` <span class="bad">uncorr:${e[4]}</span>`;
+        card+=` &nbsp; CRC <span class="${r.crcOk?'ok':'bad'}">${r.crcOk?'OK':'FAIL'}</span>`;
+        card+=` &nbsp; ${r.bytes.length} bytes out`;
+      }catch(e){card+=`<span class="bad">Error: ${e.message}</span>`;}
+      card+='</div>';cards.push(card);
+    }
+    const all=new Uint8Array(combined);
+    const uw=await unwrapHeader(all);
+    let summary;
+    if(uw.hasHeader){
+      const ok=uw.hashOk;
+      summary=`<div class="card"><b>&#128196; ${uw.fname||'(unnamed)'}</b>`;
+      summary+=` &nbsp; ${uw.body.length.toLocaleString()} bytes`;
+      summary+=` &nbsp; SHA-256 <span class="${ok?'ok':'bad'}">${ok?'verified ✓':'MISMATCH ✗'}</span>`;
+      if(uw.error)summary+=`<br><span class="bad">${uw.error}</span>`;
+      else{
+        const url=URL.createObjectURL(new Blob([uw.body]));
+        summary+=`<br><a class="dl" href="${url}" download="${uw.fname||'recovered'}">&#8681; Download ${uw.fname||'file'}</a>`;
+      }
+      summary+='</div>';
+    }else{
+      const url=URL.createObjectURL(new Blob([all]));
+      summary=`<div class="card"><b>Raw output</b> (no OPTR header) — ${all.length.toLocaleString()} bytes`;
+      summary+=`<br><a class="dl" href="${url}" download="sloptar_out.bin">&#8681; Download raw</a></div>`;
+    }
+    OT.innerHTML=summary+cards.join('');
+  }catch(e){OT.innerHTML=`<p class="bad">Fatal: ${e.message}</p>`;}
+  GO.disabled=false;
+});
+window.SLOPTAR_LITE_READY=true;
+</script>
